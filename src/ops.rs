@@ -587,9 +587,12 @@ impl Function for Div {
 
 /// The Rust handl for `op "tensor.matmul" : (Tensor * Tensor) -> Tensor`.
 ///
-/// Rank-2 × rank-2 dense product `(m×k)·(k×n) -> m×n`, naive triple loop —
-/// the point of this component is the composition seam, not BLAS. Other
-/// ranks are an error (batched matmul is follow-up).
+/// Dense product `(m×k)·(k×n) -> m×n`, naive triple loop — the point of
+/// this component is the composition seam, not BLAS. Rank-2 × rank-2 is
+/// the plain matrix product; a rank-3 `[B, m, k]` or `[B, k, n]` side
+/// batches it to `[B, m, n]`, with the batch dim broadcasting: a rank-2
+/// operand (or a `B = 1` batch) repeats across the other's batches.
+/// Ranks outside {2, 3} are an error.
 #[derive(Debug, Clone, Copy)]
 pub struct Matmul;
 impl Function for Matmul {
@@ -597,36 +600,61 @@ impl Function for Matmul {
         handl_lib_ops::shared::require_arg_count(args, 2)?;
         let a = require_tensor(args, 0)?;
         let b = require_tensor(args, 1)?;
-        if a.shape.len() != 2 || b.shape.len() != 2 {
-            return Err(EvalError::Other(format!(
-                "tensor.matmul: expected two rank-2 tensors, got ranks {} and {}",
-                a.shape.len(),
-                b.shape.len()
-            )));
+        for (name, t) in [("lhs", &a), ("rhs", &b)] {
+            if t.shape.len() != 2 && t.shape.len() != 3 {
+                return Err(EvalError::Other(format!(
+                    "tensor.matmul: expected rank-2 or rank-3 {name}, got rank {} ({:?})",
+                    t.shape.len(),
+                    t.shape
+                )));
+            }
         }
-        let (m, k) = (a.shape[0], a.shape[1]);
-        let (k2, n) = (b.shape[0], b.shape[1]);
+        let batched = a.shape.len() == 3 || b.shape.len() == 3;
+        let (b_a, m, k) = if a.shape.len() == 3 {
+            (a.shape[0], a.shape[1], a.shape[2])
+        } else {
+            (1, a.shape[0], a.shape[1])
+        };
+        let (b_b, k2, n) = if b.shape.len() == 3 {
+            (b.shape[0], b.shape[1], b.shape[2])
+        } else {
+            (1, b.shape[0], b.shape[1])
+        };
         if k != k2 {
             return Err(EvalError::Other(format!(
                 "tensor.matmul: inner dimension mismatch {k} vs {k2} ({m}x{k})·({k2}x{n})"
             )));
         }
-        let mut data = vec![0.0; m * n];
-        for i in 0..m {
-            for l in 0..k {
-                let a_il = a.data[i * k + l];
-                if a_il == 0.0 {
-                    continue;
-                }
-                for j in 0..n {
-                    data[i * n + j] += a_il * b.data[l * n + j];
+        if b_a != b_b && b_a != 1 && b_b != 1 {
+            return Err(EvalError::Other(format!(
+                "tensor.matmul: batch dims {b_a} and {b_b} are not broadcast-compatible"
+            )));
+        }
+        let batch = b_a.max(b_b);
+        let (a_slab, b_slab) = (m * k, k * n);
+        let mut data = vec![0.0; batch * m * n];
+        for bi in 0..batch {
+            let a_off = if b_a == 1 { 0 } else { bi * a_slab };
+            let b_off = if b_b == 1 { 0 } else { bi * b_slab };
+            let out_off = bi * m * n;
+            for i in 0..m {
+                for l in 0..k {
+                    let a_il = a.data[a_off + i * k + l];
+                    if a_il == 0.0 {
+                        continue;
+                    }
+                    for j in 0..n {
+                        data[out_off + i * n + j] += a_il * b.data[b_off + l * n + j];
+                    }
                 }
             }
         }
-        Ok(encode_tensor(Tensor {
-            shape: vec![m, n],
-            data,
-        }))
+        let shape = if batched {
+            vec![batch, m, n]
+        } else {
+            vec![m, n]
+        };
+        Ok(encode_tensor(Tensor { shape, data }))
     }
 }
 
@@ -1393,6 +1421,64 @@ mod tests {
             .is_err()
         );
         assert!(call_fn(&Matmul, &[tensor(&[4], &[0.0; 4]), tensor(&[4], &[0.0; 4])]).is_err());
+        // Rank 4 is outside the {2, 3} surface.
+        assert!(
+            call_fn(
+                &Matmul,
+                &[tensor(&[1, 1, 1, 1], &[0.0]), tensor(&[2, 2], &[0.0; 4])]
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn matmul_batched() {
+        // B=2: batch 0 is [[1,0],[0,1]]·x = x; batch 1 is 2·I·x = 2x.
+        let a = tensor(&[2, 2, 2], &[1.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 2.0]);
+        let b = tensor(&[2, 2, 1], &[3.0, 4.0, 5.0, 6.0]);
+        let v = call_fn(&Matmul, &[a, b]).unwrap();
+        assert_eq!(v, tensor(&[2, 2, 1], &[3.0, 4.0, 10.0, 12.0]));
+    }
+
+    #[test]
+    fn matmul_rank2_broadcasts_over_batch() {
+        // [2,2]×[2,2,2]: the same [[1,2],[3,4]] multiplies both batches.
+        let a = tensor(&[2, 2], &[1.0, 2.0, 3.0, 4.0]);
+        let b = tensor(&[2, 2, 2], &[1.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 2.0]);
+        let v = call_fn(&Matmul, &[a, b]).unwrap();
+        assert_eq!(
+            v,
+            tensor(&[2, 2, 2], &[1.0, 2.0, 3.0, 4.0, 2.0, 4.0, 6.0, 8.0])
+        );
+        // And the other side: [2,2,2]×[2,1] applies each batch to the
+        // shared column vector.
+        let a = tensor(&[2, 2, 2], &[1.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 2.0]);
+        let b = tensor(&[2, 1], &[3.0, 4.0]);
+        let v = call_fn(&Matmul, &[a, b]).unwrap();
+        assert_eq!(v, tensor(&[2, 2, 1], &[3.0, 4.0, 6.0, 8.0]));
+    }
+
+    #[test]
+    fn matmul_rejects_incompatible_batches() {
+        // [2,·,·] × [3,·,·]: neither batch dim is 1 and they differ.
+        assert!(
+            call_fn(
+                &Matmul,
+                &[
+                    tensor(&[2, 1, 1], &[1.0, 1.0]),
+                    tensor(&[3, 1, 1], &[1.0, 1.0, 1.0])
+                ]
+            )
+            .is_err()
+        );
+        // Inner dims still checked under batching.
+        assert!(
+            call_fn(
+                &Matmul,
+                &[tensor(&[1, 2, 3], &[0.0; 6]), tensor(&[1, 2, 2], &[0.0; 4])]
+            )
+            .is_err()
+        );
     }
 
     // ── conv2d ────────────────────────────────────────────────────────

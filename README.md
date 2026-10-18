@@ -17,7 +17,7 @@ The surface (16 FFI atoms, `src/index.hnl` is the single source of truth):
 | `tensor.mul` | `(Tensor * Tensor) -> Tensor` | elementwise `a * b`, numpy broadcasting |
 | `tensor.sub` | `(Tensor * Tensor) -> Tensor` | elementwise `a − b`, numpy broadcasting |
 | `tensor.div` | `(Tensor * Tensor) -> Tensor` | elementwise `a / b`, numpy broadcasting |
-| `tensor.matmul` | `(Tensor * Tensor) -> Tensor` | rank-2 `(m×k)·(k×n)`, naive loop |
+| `tensor.matmul` | `(Tensor * Tensor) -> Tensor` | `(m×k)·(k×n)`; rank-3 batches over `B` (broadcast), naive loop |
 | `tensor.conv2d` | `Value... -> Tensor` | NCHW cross-correlation `(input, weight, bias?, stride?, padding?, groups?)` |
 | `tensor.max_pool` | `Value... -> Tensor` | NCHW max pooling `(input, kernel, stride?)`; stride defaults to kernel |
 | `tensor.batch_norm` | `Value... -> Tensor` | eval-mode per-channel affine `(input, gamma, beta, mean, var, eps?)` |
@@ -50,6 +50,11 @@ count (no `-1` wildcard); `transpose(t, d0, d1)` swaps two axes;
 `concat(xs, axis)` joins a non-empty list of same-rank tensors that
 agree on every axis but `axis`, whose extents sum — `axis 0` stacks,
 `axis rank−1` appends along the fastest-varying axis.
+
+**Batched `matmul`** — ranks are {2, 3} per side: `[B, m, k] ×
+[B, k, n] → [B, m, n]` for rank-3, with the batch dim broadcasting (a
+rank-2 operand or a `B = 1` batch repeats across the other's batches);
+rank-2 × rank-2 stays the plain `(m×k)·(k×n)` product.
 
 **Tensor wire value** — data on the `serde_json::Value` boundary, tagged in
 the `__bytes__` style (ADR-0083 §2.1); a plain object to engines with no
@@ -110,8 +115,8 @@ cargo test                            # the Rust suite (codec + ops + dispatch)
 Deliberately out of scope so far — the composition seam is the
 point, not BLAS: ~~`tensor.max_pool` and friends (NCHW layout
 params)~~, ~~broadcasting `add`/`mul`/`sub`/`div`~~,
-~~`reshape`/`transpose`/`concat`~~, batched
-`matmul`, `tensor.derive` (autodiff value: primal + adjoint for the
+~~`reshape`/`transpose`/`concat`~~, ~~batched `matmul`~~,
+`tensor.derive` (autodiff value: primal + adjoint for the
 optimization-loop host functions), a real `Tensor` scalar in
 `value_types.yaml` + `TaggedValue::Tensor` (opaque `Rc` payload instead of
 the tagged-object encoding — see the finding below), and dtype promotion

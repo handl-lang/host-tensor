@@ -29,8 +29,10 @@
 --- `tensor.from_list(xs)` infers the shape from nested number arrays and
 --- rejects ragged input; the elementwise four (`add`/`mul`/`sub`/`div`)
 --- broadcast numpy-style — trailing dims align, a `1`-dim stretches, a
---- missing leading dim counts as `1`; `tensor.matmul(a, b)` is rank-2 ×
---- rank-2 `(m×k)·(k×n)` for now (batched matmul is follow-up).
+--- missing leading dim counts as `1`; `tensor.matmul(a, b)` is `(m×k)·
+--- (k×n)` for rank-2 operands and batched `[B, m, k] × [B, k, n]` for
+--- rank-3, with the batch dim broadcasting (a rank-2 side or `B = 1`
+--- repeats across the other's batches).
 ---
 --- `conv2d` / `batch_norm` take *positional optional* trailing
 --- parameters: a `null` (or a missing argument) selects the default, so
@@ -63,7 +65,7 @@
 --- tensor.mul -- elementwise `a * b` (numpy-style broadcasting).
 --- tensor.sub -- elementwise `a - b` (numpy-style broadcasting).
 --- tensor.div -- elementwise `a / b` (numpy-style broadcasting).
---- tensor.matmul -- `(m×k)·(k×n)` dense matrix product of two rank-2 tensors.
+--- tensor.matmul -- `(m×k)·(k×n)` dense matrix product; rank-3 sides batch over `B` (batch broadcasts).
 --- tensor.conv2d -- NCHW conv2d `(input, weight, bias?, stride?, padding?, groups?)`.
 --- tensor.max_pool -- NCHW max pooling `(input, kernel, stride?)`; stride defaults to kernel.
 --- tensor.batch_norm -- eval-mode batch norm `(input, gamma, beta, mean, var, eps?)`.
