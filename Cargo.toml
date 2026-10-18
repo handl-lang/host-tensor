@@ -18,12 +18,14 @@ serde_json = "1"
 handl-plugin-module = { git = "https://github.com/handl-lang/platform", branch = "main" }
 
 [patch."https://github.com/handl-lang/kernel"]
+handl-language = { path = "../kernel/crates/handl-language" }
 handl-value = { path = "../kernel/crates/handl-value" }
 
 [patch."https://github.com/handl-lang/platform"]
 handl-platform = { path = "../platform/crates/platform" }
 handl-plugin-lib-handl = { path = "../platform/crates/plugin-lib-handl" }
 handl-plugin-module = { path = "../platform/crates/plugin-module" }
+handl-runtime = { path = "../platform/crates/handl-runtime" }
 
 [patch."https://github.com/handl-lang/lib-ops"]
 handl-lib-ops = { path = "../lib-ops" }

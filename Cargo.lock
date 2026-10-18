@@ -30,9 +30,8 @@ dependencies = [
 [[package]]
 name = "handl-language"
 version = "0.1.0"
-source = "git+https://github.com/handl-lang/kernel?branch=main#5ed78ee3d4e3fa3f0a447d7a986cbe208b5b9a80"
 dependencies = [
- "plugin-engine",
+ "hnl-engine",
  "serde",
  "serde_json",
  "thiserror",
@@ -68,126 +67,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "handl-plugin-engine-exec"
-version = "0.1.0"
-dependencies = [
- "handl-language",
- "handl-platform",
- "handl-value",
- "rustc-hash",
- "serde_json",
-]
-
-[[package]]
-name = "handl-plugin-engine-exec-bytecode"
-version = "0.1.0"
-dependencies = [
- "handl-language",
- "handl-platform",
- "handl-plugin-engine-exec",
- "handl-plugin-engine-exec-tree-walk",
- "handl-plugin-engine-transform",
- "handl-plugin-engine-transform-rewrite",
- "handl-runtime",
- "handl-value",
- "plugin-engine",
- "rustc-hash",
- "serde_json",
-]
-
-[[package]]
-name = "handl-plugin-engine-exec-tree-walk"
-version = "0.1.0"
-dependencies = [
- "handl-language",
- "handl-platform",
- "handl-plugin-engine-exec",
- "handl-value",
- "plugin-engine",
- "rustc-hash",
- "serde_json",
-]
-
-[[package]]
-name = "handl-plugin-engine-lex"
-version = "0.1.0"
-dependencies = [
- "handl-language",
- "serde_json",
-]
-
-[[package]]
-name = "handl-plugin-engine-lex-pattern"
-version = "0.1.0"
-dependencies = [
- "handl-language",
- "handl-plugin-engine-lex",
-]
-
-[[package]]
-name = "handl-plugin-engine-lint"
-version = "0.1.0"
-dependencies = [
- "handl-language",
- "handl-plugin-engine-lex-pattern",
- "handl-plugin-engine-parse",
- "handl-plugin-engine-parse-pratt",
- "handl-plugin-engine-transform-rewrite",
- "handl-plugin-ext-diag",
- "serde_json",
-]
-
-[[package]]
-name = "handl-plugin-engine-parse"
-version = "0.1.0"
-dependencies = [
- "handl-language",
- "serde_json",
-]
-
-[[package]]
-name = "handl-plugin-engine-parse-pratt"
-version = "0.1.0"
-dependencies = [
- "handl-language",
- "handl-plugin-engine-parse",
- "serde_json",
-]
-
-[[package]]
-name = "handl-plugin-engine-transform"
-version = "0.1.0"
-dependencies = [
- "handl-language",
- "handl-plugin-ext-diag",
- "serde_json",
-]
-
-[[package]]
-name = "handl-plugin-engine-transform-rewrite"
-version = "0.1.0"
-dependencies = [
- "handl-language",
- "handl-plugin-engine-transform",
- "serde_json",
-]
-
-[[package]]
-name = "handl-plugin-engine-typecheck"
-version = "0.1.0"
-dependencies = [
- "handl-language",
- "handl-platform",
- "handl-plugin-engine-lex-pattern",
- "handl-plugin-engine-parse",
- "handl-plugin-engine-parse-pratt",
- "handl-plugin-ext-diag",
- "serde_json",
-]
-
-[[package]]
 name = "handl-plugin-ext-diag"
 version = "0.1.0"
+source = "git+https://github.com/handl-lang/platform?branch=main#7e211f8dec995ec903b2a81e4b919d1489d04827"
 dependencies = [
  "handl-language",
  "handl-platform",
@@ -213,18 +95,18 @@ dependencies = [
  "handl-lib-dedent",
  "handl-lib-str-handl",
  "handl-platform",
- "handl-plugin-engine-exec",
- "handl-plugin-engine-exec-bytecode",
- "handl-plugin-engine-exec-tree-walk",
- "handl-plugin-engine-lex-pattern",
- "handl-plugin-engine-lint",
- "handl-plugin-engine-parse-pratt",
- "handl-plugin-engine-transform",
  "handl-plugin-lib-char-native",
  "handl-plugin-module",
  "handl-runtime",
  "handl-value",
- "plugin-engine",
+ "hnl-engine",
+ "hnl-engine-exec",
+ "hnl-engine-exec-bytecode",
+ "hnl-engine-exec-tree-walk",
+ "hnl-engine-lex-pattern",
+ "hnl-engine-lint",
+ "hnl-engine-parse-pratt",
+ "hnl-engine-transform",
  "serde_json",
 ]
 
@@ -243,13 +125,13 @@ dependencies = [
  "handl-kit-arrow-lower",
  "handl-language",
  "handl-platform",
- "handl-plugin-engine-exec",
- "handl-plugin-engine-lex",
- "handl-plugin-engine-parse",
- "handl-plugin-engine-transform-rewrite",
- "handl-plugin-engine-typecheck",
  "handl-value",
- "plugin-engine",
+ "hnl-engine",
+ "hnl-engine-exec",
+ "hnl-engine-lex",
+ "hnl-engine-parse",
+ "hnl-engine-transform-rewrite",
+ "hnl-engine-typecheck",
  "rustc-hash",
  "serde",
  "serde_json",
@@ -268,6 +150,145 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+
+[[package]]
+name = "hnl-engine"
+version = "0.1.0"
+source = "git+https://github.com/handl-lang/engine?branch=main#508a6cd5739fbe260123e926e6b6195205b9133b"
+dependencies = [
+ "handl-value",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hnl-engine-exec"
+version = "0.1.0"
+source = "git+https://github.com/handl-lang/engine-exec?branch=main#ea587c5f4e5bc49c24d80cc146ea54b5a6e609af"
+dependencies = [
+ "handl-language",
+ "handl-platform",
+ "handl-value",
+ "rustc-hash",
+ "serde_json",
+]
+
+[[package]]
+name = "hnl-engine-exec-bytecode"
+version = "0.1.0"
+source = "git+https://github.com/handl-lang/engine-exec-bytecode?branch=main#fbb8ca2e2f45ec85443c40f8fd8bc6b8ee599149"
+dependencies = [
+ "handl-language",
+ "handl-platform",
+ "handl-runtime",
+ "handl-value",
+ "hnl-engine",
+ "hnl-engine-exec",
+ "hnl-engine-exec-tree-walk",
+ "hnl-engine-transform",
+ "hnl-engine-transform-rewrite",
+ "rustc-hash",
+ "serde_json",
+]
+
+[[package]]
+name = "hnl-engine-exec-tree-walk"
+version = "0.1.0"
+source = "git+https://github.com/handl-lang/engine-exec-tree-walk?branch=main#350e085d4952b8ca006fbe1fcbdbeffbd6fac7be"
+dependencies = [
+ "handl-language",
+ "handl-platform",
+ "handl-value",
+ "hnl-engine",
+ "hnl-engine-exec",
+ "rustc-hash",
+ "serde_json",
+]
+
+[[package]]
+name = "hnl-engine-lex"
+version = "0.1.0"
+source = "git+https://github.com/handl-lang/engine-lex?branch=main#5944284522d9159da95d104347edbf1caf76b3eb"
+dependencies = [
+ "handl-language",
+ "serde_json",
+]
+
+[[package]]
+name = "hnl-engine-lex-pattern"
+version = "0.1.0"
+source = "git+https://github.com/handl-lang/engine-lex-pattern?branch=main#1f68585e46ed9ea28e00af2e91f01d6d74745489"
+dependencies = [
+ "handl-language",
+ "hnl-engine-lex",
+]
+
+[[package]]
+name = "hnl-engine-lint"
+version = "0.1.0"
+source = "git+https://github.com/handl-lang/engine-lint?branch=main#725bd7e45c2cef2cb6428a9f7b7a8e6054328166"
+dependencies = [
+ "handl-language",
+ "handl-plugin-ext-diag",
+ "hnl-engine-lex-pattern",
+ "hnl-engine-parse",
+ "hnl-engine-parse-pratt",
+ "hnl-engine-transform-rewrite",
+ "serde_json",
+]
+
+[[package]]
+name = "hnl-engine-parse"
+version = "0.1.0"
+source = "git+https://github.com/handl-lang/engine-parse?branch=main#fda81d0e31896f6acfb8a6fbe2abf484f6e37ae5"
+dependencies = [
+ "handl-language",
+ "serde_json",
+]
+
+[[package]]
+name = "hnl-engine-parse-pratt"
+version = "0.1.0"
+source = "git+https://github.com/handl-lang/engine-parse-pratt?branch=main#3e1101b35f40ed56e2f154e4bf5e48b5615d30f1"
+dependencies = [
+ "handl-language",
+ "hnl-engine-parse",
+ "serde_json",
+]
+
+[[package]]
+name = "hnl-engine-transform"
+version = "0.1.0"
+source = "git+https://github.com/handl-lang/engine-transform?branch=main#dfa6e1f7f2eeebb9feb48445d84a56f88d9b09cb"
+dependencies = [
+ "handl-language",
+ "handl-plugin-ext-diag",
+ "serde_json",
+]
+
+[[package]]
+name = "hnl-engine-transform-rewrite"
+version = "0.1.0"
+source = "git+https://github.com/handl-lang/engine-transform-rewrite?branch=main#57b11cbff6507442e6407de47469ac3f8efbef5e"
+dependencies = [
+ "handl-language",
+ "hnl-engine-transform",
+ "serde_json",
+]
+
+[[package]]
+name = "hnl-engine-typecheck"
+version = "0.1.0"
+source = "git+https://github.com/handl-lang/engine-typecheck?branch=main#6d469ff09f125622f69ed128cedf799df6c209ef"
+dependencies = [
+ "handl-language",
+ "handl-platform",
+ "handl-plugin-ext-diag",
+ "hnl-engine-lex-pattern",
+ "hnl-engine-parse",
+ "hnl-engine-parse-pratt",
+ "serde_json",
+]
 
 [[package]]
 name = "indexmap"
@@ -290,16 +311,6 @@ name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
-
-[[package]]
-name = "plugin-engine"
-version = "0.1.0"
-source = "git+https://github.com/handl-lang/kernel?branch=main#5ed78ee3d4e3fa3f0a447d7a986cbe208b5b9a80"
-dependencies = [
- "handl-value",
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "proc-macro2"
