@@ -1,9 +1,9 @@
 --- tensor -- host-side dense n-d tensor functions (f64, row-major).
 ---
---- Single source of truth for the `tensor` host-function surface: 10 ops
+--- Single source of truth for the `tensor` host-function surface: 13 ops
 --- covering construction (`zeros`, `ones`, `from_list`), projection
---- (`shape`, `to_list`), and algebra (`add`, `matmul`, `conv2d`,
---- `max_pool`, `batch_norm`). A *runtime* (catopt
+--- (`shape`, `to_list`), and algebra (`add`/`mul`/`sub`/`div`, `matmul`,
+--- `conv2d`, `max_pool`, `batch_norm`). A *runtime* (catopt
 --- is the first consumer) composes this package by building a `HandlModule`
 --- with the Rust `OpRegistry` this repo ships (`tensor_op_registry`), so
 --- the `tensor.*` string callees resolve to native impls; nothing in the
@@ -18,7 +18,7 @@
 --- staying a plain object to engines that have no `Tensor` scalar type —
 --- promoting one in `value_types.yaml` later changes no wire shape.
 ---
---- All 10 functions are FFI atoms: a tensor has no literal syntax and no
+--- All 13 functions are FFI atoms: a tensor has no literal syntax and no
 --- eval-vocabulary constructor, so construction, projection, and algebra
 --- cannot be expressed as pure handl arrows. The `op`/`handle` declaration
 --- form (ADR-0077 Phase 2) declares the interface; the Rust `Function`
@@ -26,9 +26,10 @@
 --- `OpRegistry` that dispatches each `op` to its native impl.
 ---
 --- `tensor.from_list(xs)` infers the shape from nested number arrays and
---- rejects ragged input; `tensor.add(a, b)` requires identical shapes
---- (broadcasting is follow-up); `tensor.matmul(a, b)` is rank-2 × rank-2
---- `(m×k)·(k×n)` for now (batched matmul is follow-up).
+--- rejects ragged input; the elementwise four (`add`/`mul`/`sub`/`div`)
+--- broadcast numpy-style — trailing dims align, a `1`-dim stretches, a
+--- missing leading dim counts as `1`; `tensor.matmul(a, b)` is rank-2 ×
+--- rank-2 `(m×k)·(k×n)` for now (batched matmul is follow-up).
 ---
 --- `conv2d` / `batch_norm` take *positional optional* trailing
 --- parameters: a `null` (or a missing argument) selects the default, so
@@ -50,7 +51,10 @@
 --- tensor.from_list -- a tensor whose flat row-major data is `xs`' nested number arrays (ragged rejected).
 --- tensor.to_list -- the nested number arrays for tensor `t` (inverse of from_list).
 --- tensor.shape -- the extent-per-axis list of tensor `t`.
---- tensor.add -- elementwise `a + b` (identical shapes required).
+--- tensor.add -- elementwise `a + b` (numpy-style broadcasting).
+--- tensor.mul -- elementwise `a * b` (numpy-style broadcasting).
+--- tensor.sub -- elementwise `a - b` (numpy-style broadcasting).
+--- tensor.div -- elementwise `a / b` (numpy-style broadcasting).
 --- tensor.matmul -- `(m×k)·(k×n)` dense matrix product of two rank-2 tensors.
 --- tensor.conv2d -- NCHW conv2d `(input, weight, bias?, stride?, padding?, groups?)`.
 --- tensor.max_pool -- NCHW max pooling `(input, kernel, stride?)`; stride defaults to kernel.
@@ -61,6 +65,9 @@ cap "tensor.from_list"
 cap "tensor.to_list"
 cap "tensor.shape"
 cap "tensor.add"
+cap "tensor.mul"
+cap "tensor.sub"
+cap "tensor.div"
 cap "tensor.matmul"
 cap "tensor.conv2d"
 cap "tensor.max_pool"
@@ -76,6 +83,12 @@ op "tensor.to_list" : Tensor -> Array
 op "tensor.shape" : Tensor -> (List Int)
   guarantee: True
 op "tensor.add" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+op "tensor.mul" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+op "tensor.sub" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+op "tensor.div" : (Tensor * Tensor) -> Tensor
   guarantee: True
 op "tensor.matmul" : (Tensor * Tensor) -> Tensor
   guarantee: True
@@ -97,6 +110,9 @@ handle "tensor.from_list" with rust_tensor_from_list
 handle "tensor.to_list" with rust_tensor_to_list
 handle "tensor.shape" with rust_tensor_shape
 handle "tensor.add" with rust_tensor_add
+handle "tensor.mul" with rust_tensor_mul
+handle "tensor.sub" with rust_tensor_sub
+handle "tensor.div" with rust_tensor_div
 handle "tensor.matmul" with rust_tensor_matmul
 handle "tensor.conv2d" with rust_tensor_conv2d
 handle "tensor.max_pool" with rust_tensor_max_pool
@@ -113,6 +129,9 @@ export tensor := {
   to_list: "tensor.to_list",
   shape: "tensor.shape",
   add: "tensor.add",
+  mul: "tensor.mul",
+  sub: "tensor.sub",
+  div: "tensor.div",
   matmul: "tensor.matmul",
   conv2d: "tensor.conv2d",
   max_pool: "tensor.max_pool",

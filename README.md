@@ -4,7 +4,7 @@ Host-side tensor functions for handl runtimes — a dense n-d `f64` array
 (row-major) behind the `tensor.*` op surface. Runtimes compose this
 component to give `.hnl` code tensor ops; catopt is the first consumer.
 
-The surface (10 FFI atoms, `src/index.hnl` is the single source of truth):
+The surface (13 FFI atoms, `src/index.hnl` is the single source of truth):
 
 | op | signature | semantics |
 |---|---|---|
@@ -13,11 +13,21 @@ The surface (10 FFI atoms, `src/index.hnl` is the single source of truth):
 | `tensor.from_list` | `Array -> Tensor` | nested number arrays → tensor (ragged rejected) |
 | `tensor.to_list` | `Tensor -> Array` | tensor → nested number arrays |
 | `tensor.shape` | `Tensor -> (List Int)` | extent per axis |
-| `tensor.add` | `(Tensor * Tensor) -> Tensor` | elementwise, identical shapes |
+| `tensor.add` | `(Tensor * Tensor) -> Tensor` | elementwise `a + b`, numpy broadcasting |
+| `tensor.mul` | `(Tensor * Tensor) -> Tensor` | elementwise `a * b`, numpy broadcasting |
+| `tensor.sub` | `(Tensor * Tensor) -> Tensor` | elementwise `a − b`, numpy broadcasting |
+| `tensor.div` | `(Tensor * Tensor) -> Tensor` | elementwise `a / b`, numpy broadcasting |
 | `tensor.matmul` | `(Tensor * Tensor) -> Tensor` | rank-2 `(m×k)·(k×n)`, naive loop |
 | `tensor.conv2d` | `Value... -> Tensor` | NCHW cross-correlation `(input, weight, bias?, stride?, padding?, groups?)` |
 | `tensor.max_pool` | `Value... -> Tensor` | NCHW max pooling `(input, kernel, stride?)`; stride defaults to kernel |
 | `tensor.batch_norm` | `Value... -> Tensor` | eval-mode per-channel affine `(input, gamma, beta, mean, var, eps?)` |
+
+**Broadcasting** — the elementwise four (`add`/`mul`/`sub`/`div`)
+follow numpy rules: trailing dims align, a `1`-dim stretches, a missing
+leading dim counts as `1` (`[2,3] + [3]` → `[2,3]`; `[2,1] + [1,3]` →
+`[2,3]`; rank-0 is the scalar). A dim pair that differs with neither
+side `1` is an error, not a coercion. `div` keeps `f64` semantics —
+`x/0` is `inf`/`NaN`, matching the scalar `/`.
 
 **Positional optionals** — `conv2d`/`max_pool`/`batch_norm` take optional trailing
 parameters; a `null` (or a missing argument) selects the default, so
@@ -89,7 +99,8 @@ cargo test                            # the Rust suite (codec + ops + dispatch)
 
 Deliberately out of scope so far — the composition seam is the
 point, not BLAS: ~~`tensor.max_pool` and friends (NCHW layout
-params)~~, broadcasting `add`/`mul`, `reshape`/`transpose`/`concat`, batched
+params)~~, ~~broadcasting `add`/`mul`/`sub`/`div`~~,
+`reshape`/`transpose`/`concat`, batched
 `matmul`, `tensor.derive` (autodiff value: primal + adjoint for the
 optimization-loop host functions), a real `Tensor` scalar in
 `value_types.yaml` + `TaggedValue::Tensor` (opaque `Rc` payload instead of
