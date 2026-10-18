@@ -6,7 +6,7 @@
 # (`host-tensor`) and the module namespace it contributes (`tensor`) — so
 # name-specs keep resolving when a dependent repo's modules are loaded
 # under this manifest's context (same shape as the `c` repo's self-declared
-# `libc` entries and platform's self-declared `math`/`math-c`).
+# `libc` entries and host's self-declared `math`/`math-c`).
 [dependencies]
 host-tensor = { path = "src" }
 tensor      = { path = "src" }

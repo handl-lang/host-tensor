@@ -9,20 +9,20 @@ repository = "https://github.com/handl-lang/host-tensor"
 [dependencies]
 # ADR-0128 §Resolution: platform + lib-ops come from the sibling checkouts for
 # local development (see the `[patch]` tables); CI resolves the git sources.
-handl-platform = { git = "https://github.com/handl-lang/platform", branch = "main" }
-handl-plugin-lib-handl = { git = "https://github.com/handl-lang/platform", branch = "main" }
+handl-platform = { git = "https://github.com/handl-lang/host", branch = "main" }
+handl-plugin-lib-handl = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-lib-ops = { git = "https://github.com/handl-lang/kernel", branch = "main" }
 serde_json = "1"
 
 [dev-dependencies]
-handl-plugin-module = { git = "https://github.com/handl-lang/platform", branch = "main" }
+handl-plugin-module = { git = "https://github.com/handl-lang/host", branch = "main" }
 # Engine round-trip test (`tests/engine_roundtrip.rs`): run a `.hnl` program
 # through the real `lex → parse → eval` pipeline so `tensor.*` host results
 # decode to `TaggedValue::Tensor` inside the engine — not just across the
 # `serde_json::Value` module chain `tests/compose.rs` covers.
 handl-language = { git = "https://github.com/handl-lang/kernel", branch = "main" }
 handl-value = { git = "https://github.com/handl-lang/kernel", branch = "main" }
-handl-runtime = { git = "https://github.com/handl-lang/platform", branch = "main" }
+handl-runtime = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-kit-data-canonical = { git = "https://github.com/handl-lang/lang", branch = "main" }
 hnl-engine-lex-pattern = { git = "https://github.com/handl-lang/engine-lex-pattern", branch = "main" }
 hnl-engine-parse-pratt = { git = "https://github.com/handl-lang/engine-parse-pratt", branch = "main" }
@@ -76,10 +76,10 @@ handl-kit-data-canonical = { path = "../lang/crates/handl-kit-data-canonical" }
 [patch."https://github.com/handl-lang/lib-ops"]
 handl-lib-ops = { path = "../kernel/crates/ops" }
 
-[patch."https://github.com/handl-lang/platform"]
-handl-kit-data = { path = "../platform/crates/handl-kit-data" }
-handl-platform = { path = "../platform/crates/platform" }
-handl-plugin-ext-diag = { path = "../platform/crates/plugin-ext-diag" }
-handl-plugin-lib-handl = { path = "../platform/crates/plugin-lib-handl" }
-handl-plugin-module = { path = "../platform/crates/plugin-module" }
-handl-runtime = { path = "../platform/crates/handl-runtime" }
+[patch."https://github.com/handl-lang/host"]
+handl-kit-data = { path = "../host/crates/handl-kit-data" }
+handl-platform = { path = "../host/crates/platform" }
+handl-plugin-ext-diag = { path = "../host/crates/plugin-ext-diag" }
+handl-plugin-lib-handl = { path = "../host/crates/plugin-lib-handl" }
+handl-plugin-module = { path = "../host/crates/plugin-module" }
+handl-runtime = { path = "../host/crates/handl-runtime" }
