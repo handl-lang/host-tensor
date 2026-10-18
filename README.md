@@ -90,4 +90,19 @@ params), broadcasting `add`/`mul`, `reshape`/`transpose`/`concat`, batched
 `matmul`, `tensor.derive` (autodiff value: primal + adjoint for the
 optimization-loop host functions), a real `Tensor` scalar in
 `value_types.yaml` + `TaggedValue::Tensor` (opaque `Rc` payload instead of
-the tagged-object encoding), and dtype promotion beyond `f64`.
+the tagged-object encoding — see the finding below), and dtype promotion
+beyond `f64`.
+
+**`TaggedValue::Tensor` is a kernel change, not a data change**
+(investigated for this slice; deferred). `value_types.yaml` is ADR-0078
+declarative spec data: `handl-kit-data-canonical` does not load it and
+`handl-language`'s `Language` has no `value_types` field — there is no
+`ValueTypeDef` fragment type to merge into, so an entry there would be
+inert. The runtime value representation is the hardcoded
+`TaggedValue` enum in `handl-value`; a real `Tensor` variant means a new
+enum case + eq/hash + the `TaggedValue`↔`Value` codec + every `match`
+site in the engines. The opaque-payload precedent already exists —
+`TaggedValue::Resource(Rc<ForeignResource>)` (ADR-0083 §2.2, pointer +
+finalizer) — and the `Function` boundary is `serde_json::Value`
+regardless, so the `__tensor__` tagged-object encoding stays correct and
+forward-compatible until that kernel slice lands.
