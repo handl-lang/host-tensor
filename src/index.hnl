@@ -1,8 +1,9 @@
 --- tensor -- host-side dense n-d tensor functions (f64, row-major).
 ---
---- Single source of truth for the `tensor` host-function surface: 7 ops
+--- Single source of truth for the `tensor` host-function surface: 9 ops
 --- covering construction (`zeros`, `ones`, `from_list`), projection
---- (`shape`, `to_list`), and algebra (`add`, `matmul`). A *runtime* (catopt
+--- (`shape`, `to_list`), and algebra (`add`, `matmul`, `conv2d`,
+--- `batch_norm`). A *runtime* (catopt
 --- is the first consumer) composes this package by building a `HandlModule`
 --- with the Rust `OpRegistry` this repo ships (`tensor_op_registry`), so
 --- the `tensor.*` string callees resolve to native impls; nothing in the
@@ -17,7 +18,7 @@
 --- staying a plain object to engines that have no `Tensor` scalar type —
 --- promoting one in `value_types.yaml` later changes no wire shape.
 ---
---- All 7 functions are FFI atoms: a tensor has no literal syntax and no
+--- All 9 functions are FFI atoms: a tensor has no literal syntax and no
 --- eval-vocabulary constructor, so construction, projection, and algebra
 --- cannot be expressed as pure handl arrows. The `op`/`handle` declaration
 --- form (ADR-0077 Phase 2) declares the interface; the Rust `Function`
@@ -29,6 +30,17 @@
 --- (broadcasting is follow-up); `tensor.matmul(a, b)` is rank-2 × rank-2
 --- `(m×k)·(k×n)` for now (batched matmul is follow-up).
 ---
+--- `conv2d` / `batch_norm` take *positional optional* trailing
+--- parameters: a `null` (or a missing argument) selects the default, so
+--- `conv2d(x, w, null, [2, 2])` is "no bias, stride 2×2, no padding" and
+--- `batch_norm(x, g, b, m, v)` uses the default `eps = 1e-5`. Both are
+--- NCHW: `conv2d` consumes `input [N, C_in, H, W]` × `weight
+--- [C_out, C_in/groups, kH, kW]` (naive cross-correlation — no kernel
+--- flip — with `bias?` rank-1 `[C_out]`, `stride?`/`padding?` an int or
+--- `[h, w]` pair, `groups?` a positive int); `batch_norm` is the
+--- eval-mode `(x − μ)/√(σ²+ε)·γ+β` per channel with rank-1 `[C]`
+--- `gamma`/`beta`/`mean`/`var` parameters.
+---
 --- ## Capability declarations (ADR-0077 Phase 4)
 --- tensor.zeros -- a tensor of `shape` filled with 0.0.
 --- tensor.ones -- a tensor of `shape` filled with 1.0.
@@ -37,6 +49,8 @@
 --- tensor.shape -- the extent-per-axis list of tensor `t`.
 --- tensor.add -- elementwise `a + b` (identical shapes required).
 --- tensor.matmul -- `(m×k)·(k×n)` dense matrix product of two rank-2 tensors.
+--- tensor.conv2d -- NCHW conv2d `(input, weight, bias?, stride?, padding?, groups?)`.
+--- tensor.batch_norm -- eval-mode batch norm `(input, gamma, beta, mean, var, eps?)`.
 cap "tensor.zeros"
 cap "tensor.ones"
 cap "tensor.from_list"
@@ -44,6 +58,8 @@ cap "tensor.to_list"
 cap "tensor.shape"
 cap "tensor.add"
 cap "tensor.matmul"
+cap "tensor.conv2d"
+cap "tensor.batch_norm"
 op "tensor.zeros" : (List Int) -> Tensor
   guarantee: True
 op "tensor.ones" : (List Int) -> Tensor
@@ -58,6 +74,14 @@ op "tensor.add" : (Tensor * Tensor) -> Tensor
   guarantee: True
 op "tensor.matmul" : (Tensor * Tensor) -> Tensor
   guarantee: True
+--- conv2d(input, weight, bias?, stride?, padding?, groups?) — variadic;
+--- `null` at an optional position selects the default (see the header).
+op "tensor.conv2d" : Value... -> Tensor
+  guarantee: True
+--- batch_norm(input, gamma, beta, mean, var, eps?) — variadic; `null`
+--- `eps` selects the 1e-5 default.
+op "tensor.batch_norm" : Value... -> Tensor
+  guarantee: True
 handle "tensor.zeros" with rust_tensor_zeros
 handle "tensor.ones" with rust_tensor_ones
 handle "tensor.from_list" with rust_tensor_from_list
@@ -65,6 +89,8 @@ handle "tensor.to_list" with rust_tensor_to_list
 handle "tensor.shape" with rust_tensor_shape
 handle "tensor.add" with rust_tensor_add
 handle "tensor.matmul" with rust_tensor_matmul
+handle "tensor.conv2d" with rust_tensor_conv2d
+handle "tensor.batch_norm" with rust_tensor_batch_norm
 
 --- The `tensor` namespace record — `from "host-tensor" import tensor` binds
 --- the whole surface at once (each field is the qualified-name string the
@@ -77,5 +103,7 @@ export tensor := {
   to_list: "tensor.to_list",
   shape: "tensor.shape",
   add: "tensor.add",
-  matmul: "tensor.matmul"
+  matmul: "tensor.matmul",
+  conv2d: "tensor.conv2d",
+  batch_norm: "tensor.batch_norm"
 }

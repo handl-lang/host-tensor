@@ -1,7 +1,7 @@
 //! `host-tensor` — host-side tensor functions for handl runtimes.
 //!
 //! `src/index.hnl` is the single source of truth for the `tensor.*`
-//! interface (7 `op` declarations); `ops.rs` holds the Rust atoms behind
+//! interface (9 `op` declarations); `ops.rs` holds the Rust atoms behind
 //! them. A runtime (catopt is the first consumer) composes the component
 //! by building a `HandlModule` with the op registry:
 //!

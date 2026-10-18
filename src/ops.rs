@@ -1,7 +1,7 @@
 //! Rust `Function` impls for the `tensor` module — the handls (handlers)
 //! for the `op`/`handle` declarations in `src/index.hnl`.
 //!
-//! All 7 functions are FFI atoms: a tensor has no literal syntax and no
+//! All 9 functions are FFI atoms: a tensor has no literal syntax and no
 //! eval-vocabulary constructor, so construction, projection, and algebra
 //! cannot be expressed as pure handl arrows. The impls here are the
 //! host-side half runtimes compose: a consumer registers them in an
@@ -36,6 +36,8 @@ pub const TENSOR_OPS: &[&str] = &[
     "tensor.shape",
     "tensor.add",
     "tensor.matmul",
+    "tensor.conv2d",
+    "tensor.batch_norm",
 ];
 
 // ---------------------------------------------------------------------------
@@ -149,6 +151,112 @@ fn require_shape(args: &[Value], pos: usize) -> Result<Vec<usize>, EvalError> {
         .as_array()
         .ok_or_else(|| type_mismatch("shape: array of extents", "non-array"))?;
     arr.iter().map(require_extent).collect()
+}
+
+// ---------------------------------------------------------------------------
+// Optional-argument decoding (conv2d / batch_norm)
+//
+// Optional trailing parameters are positional; a `null` (or an absent
+// argument) selects the default, so callers can set a later parameter
+// without committing to the earlier ones — `conv2d(x, w, null, [2, 2])`
+// is "no bias, stride 2×2, no padding".
+// ---------------------------------------------------------------------------
+
+/// Check the argument count is in `min..=max` (variadic ops cannot use
+/// `require_arg_count`).
+fn require_arg_range(args: &[Value], min: usize, max: usize, op: &str) -> Result<(), EvalError> {
+    if args.len() < min || args.len() > max {
+        return Err(EvalError::TypeMismatch(format!(
+            "{op}: expected {min}..={max} args, got {}",
+            args.len()
+        )));
+    }
+    Ok(())
+}
+
+/// Whether the optional argument at `pos` is present and non-null.
+fn has_opt_arg(args: &[Value], pos: usize) -> bool {
+    args.get(pos).is_some_and(|a| !a.is_null())
+}
+
+/// Decode an optional tensor argument (`null`/absent → `None`).
+fn opt_tensor(args: &[Value], pos: usize) -> Result<Option<Tensor>, EvalError> {
+    match args.get(pos) {
+        Some(arg) if !arg.is_null() => Ok(Some(decode_tensor(arg)?)),
+        _ => Ok(None),
+    }
+}
+
+/// Decode an optional spatial parameter (`stride` / `padding`): a single
+/// non-negative integer `n` means `[n, n]`; a two-element list `[h, w]`
+/// gives the per-axis extents; `null`/absent means `default`.
+fn opt_extent_pair(
+    args: &[Value],
+    pos: usize,
+    default: [usize; 2],
+    name: &str,
+) -> Result<[usize; 2], EvalError> {
+    let Some(arg) = args.get(pos) else {
+        return Ok(default);
+    };
+    if arg.is_null() {
+        return Ok(default);
+    }
+    if let Some(arr) = arg.as_array() {
+        if arr.len() != 2 {
+            return Err(type_mismatch(
+                &format!("{name}: int or [h, w] pair"),
+                &format!("array of len {}", arr.len()),
+            ));
+        }
+        return Ok([require_extent(&arr[0])?, require_extent(&arr[1])?]);
+    }
+    let n = require_extent(arg)?;
+    Ok([n, n])
+}
+
+/// Decode an optional strictly-positive integer (`groups`): `null`/absent
+/// means `default`; zero or negative is an error (a non-positive group
+/// count has no meaning, unlike a zero stride/padding which is simply
+/// rejected downstream or degenerate).
+fn opt_positive_int(
+    args: &[Value],
+    pos: usize,
+    default: usize,
+    name: &str,
+) -> Result<usize, EvalError> {
+    if !has_opt_arg(args, pos) {
+        return Ok(default);
+    }
+    let n = require_extent(&args[pos])?;
+    if n == 0 {
+        return Err(EvalError::Other(format!(
+            "{name}: must be a positive integer, got 0"
+        )));
+    }
+    Ok(n)
+}
+
+/// Decode an optional non-negative finite float (`eps`): `null`/absent
+/// means `default`.
+fn opt_nonneg_float(
+    args: &[Value],
+    pos: usize,
+    default: f64,
+    name: &str,
+) -> Result<f64, EvalError> {
+    if !has_opt_arg(args, pos) {
+        return Ok(default);
+    }
+    let x = args[pos]
+        .as_f64()
+        .ok_or_else(|| type_mismatch(&format!("{name}: number"), "non-number"))?;
+    if !x.is_finite() || x < 0.0 {
+        return Err(EvalError::Other(format!(
+            "{name}: expected a non-negative finite number, got {x}"
+        )));
+    }
+    Ok(x)
 }
 
 // ---------------------------------------------------------------------------
@@ -364,6 +472,204 @@ impl Function for Matmul {
     }
 }
 
+/// The Rust handl for `op "tensor.conv2d" : Value... -> Tensor`.
+///
+/// NCHW cross-correlation (the "convolution" of the deep-learning
+/// libraries — no kernel flip): `conv2d(input, weight, bias?, stride?,
+/// padding?, groups?)` with
+///
+/// - `input` — rank-4 `[N, C_in, H, W]`;
+/// - `weight` — rank-4 `[C_out, C_in/groups, kH, kW]`;
+/// - `bias` — `null`/absent or a rank-1 `[C_out]` tensor added per output
+///   channel;
+/// - `stride` — `null`/absent (→ `[1, 1]`), a positive integer `s`
+///   (→ `[s, s]`), or `[sH, sW]`;
+/// - `padding` — `null`/absent (→ `[0, 0]`), a non-negative integer `p`
+///   (→ `[p, p]`), or `[pH, pW]`; implicit zero-padding;
+/// - `groups` — `null`/absent (→ `1`) or a positive integer. `groups`
+///   must divide both `C_in` and `C_out`; `groups = C_in = C_out` is
+///   depthwise convolution.
+///
+/// The output is `[N, C_out, H_out, W_out]` with
+/// `H_out = (H + 2·pH − kH)/sH + 1` (likewise `W_out`); a kernel that
+/// does not fit the padded input is an error. Naive `f64` loops — the
+/// composition seam, not BLAS.
+#[derive(Debug, Clone, Copy)]
+pub struct Conv2d;
+impl Function for Conv2d {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 2, 6, "tensor.conv2d")?;
+        let input = require_tensor(args, 0)?;
+        let weight = require_tensor(args, 1)?;
+        let bias = opt_tensor(args, 2)?;
+        let [s_h, s_w] = opt_extent_pair(args, 3, [1, 1], "tensor.conv2d: stride")?;
+        let [p_h, p_w] = opt_extent_pair(args, 4, [0, 0], "tensor.conv2d: padding")?;
+        let groups = opt_positive_int(args, 5, 1, "tensor.conv2d: groups")?;
+        if s_h == 0 || s_w == 0 {
+            return Err(EvalError::Other(format!(
+                "tensor.conv2d: stride must be positive, got [{s_h}, {s_w}]"
+            )));
+        }
+        if input.shape.len() != 4 || weight.shape.len() != 4 {
+            return Err(EvalError::Other(format!(
+                "tensor.conv2d: expected rank-4 input and weight (NCHW × OIHW), got ranks {} and {}",
+                input.shape.len(),
+                weight.shape.len()
+            )));
+        }
+        let [n, c_in, h, w] = [
+            input.shape[0],
+            input.shape[1],
+            input.shape[2],
+            input.shape[3],
+        ];
+        let [c_out, c_in_w, k_h, k_w] = [
+            weight.shape[0],
+            weight.shape[1],
+            weight.shape[2],
+            weight.shape[3],
+        ];
+        if c_in % groups != 0 || c_out % groups != 0 {
+            return Err(EvalError::Other(format!(
+                "tensor.conv2d: groups {groups} must divide both C_in {c_in} and C_out {c_out}"
+            )));
+        }
+        let c_in_g = c_in / groups;
+        let c_out_g = c_out / groups;
+        if c_in_w != c_in_g {
+            return Err(EvalError::Other(format!(
+                "tensor.conv2d: weight channels {c_in_w} != C_in/groups {c_in_g} \
+                 (input [N, {c_in}, {h}, {w}], weight [{c_out}, {c_in_w}, {k_h}, {k_w}], groups {groups})"
+            )));
+        }
+        if let Some(b) = &bias {
+            if b.shape != [c_out] {
+                return Err(EvalError::Other(format!(
+                    "tensor.conv2d: bias shape {:?} != [{c_out}]",
+                    b.shape
+                )));
+            }
+        }
+        let Some(h_out_num) = (h + 2 * p_h).checked_sub(k_h) else {
+            return Err(EvalError::Other(format!(
+                "tensor.conv2d: kernel height {k_h} exceeds padded input height {}",
+                h + 2 * p_h
+            )));
+        };
+        let Some(w_out_num) = (w + 2 * p_w).checked_sub(k_w) else {
+            return Err(EvalError::Other(format!(
+                "tensor.conv2d: kernel width {k_w} exceeds padded input width {}",
+                w + 2 * p_w
+            )));
+        };
+        let h_out = h_out_num / s_h + 1;
+        let w_out = w_out_num / s_w + 1;
+        let mut data = vec![0.0; n * c_out * h_out * w_out];
+        for bn in 0..n {
+            for g in 0..groups {
+                for oc in 0..c_out_g {
+                    let co = g * c_out_g + oc;
+                    let b_co = bias.as_ref().map_or(0.0, |b| b.data[co]);
+                    for oy in 0..h_out {
+                        for ox in 0..w_out {
+                            let mut acc = b_co;
+                            for ic in 0..c_in_g {
+                                let ci = g * c_in_g + ic;
+                                for ky in 0..k_h {
+                                    // Input row = oy*sH + ky − pH; out of
+                                    // range is the zero padding.
+                                    let iy = oy * s_h + ky;
+                                    if iy < p_h {
+                                        continue;
+                                    }
+                                    let iy = iy - p_h;
+                                    if iy >= h {
+                                        continue;
+                                    }
+                                    for kx in 0..k_w {
+                                        let ix = ox * s_w + kx;
+                                        if ix < p_w {
+                                            continue;
+                                        }
+                                        let ix = ix - p_w;
+                                        if ix >= w {
+                                            continue;
+                                        }
+                                        acc += input.data[((bn * c_in + ci) * h + iy) * w + ix]
+                                            * weight.data
+                                                [((co * c_in_g + ic) * k_h + ky) * k_w + kx];
+                                    }
+                                }
+                            }
+                            data[((bn * c_out + co) * h_out + oy) * w_out + ox] = acc;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(encode_tensor(Tensor {
+            shape: vec![n, c_out, h_out, w_out],
+            data,
+        }))
+    }
+}
+
+/// The Rust handl for `op "tensor.batch_norm" : Value... -> Tensor`.
+///
+/// Eval-mode (inference) batch normalization:
+/// `batch_norm(input, gamma, beta, mean, var, eps?)` with `input` rank-4
+/// `[N, C, H, W]` and `gamma` / `beta` / `mean` / `var` rank-1 `[C]`
+/// learned/statistical parameters. Per channel `c`,
+/// `out = (x − mean[c]) / sqrt(var[c] + eps) · gamma[c] + beta[c]`.
+/// `eps` is `null`/absent (→ `1e-5`) or a non-negative finite number.
+#[derive(Debug, Clone, Copy)]
+pub struct BatchNorm;
+impl Function for BatchNorm {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 5, 6, "tensor.batch_norm")?;
+        let input = require_tensor(args, 0)?;
+        if input.shape.len() != 4 {
+            return Err(EvalError::Other(format!(
+                "tensor.batch_norm: expected a rank-4 input [N, C, H, W], got rank {} ({:?})",
+                input.shape.len(),
+                input.shape
+            )));
+        }
+        let c = input.shape[1];
+        let params: Vec<Tensor> = (1..5)
+            .map(|pos| require_tensor(args, pos))
+            .collect::<Result<_, _>>()?;
+        let names = ["gamma", "beta", "mean", "var"];
+        for (name, p) in names.iter().zip(params.iter()) {
+            if p.shape != [c] {
+                return Err(EvalError::Other(format!(
+                    "tensor.batch_norm: {name} shape {:?} != [{c}]",
+                    p.shape
+                )));
+            }
+        }
+        let [gamma, beta, mean, var] = [&params[0], &params[1], &params[2], &params[3]];
+        let eps = opt_nonneg_float(args, 5, 1e-5, "tensor.batch_norm: eps")?;
+        let hw = input.shape[2] * input.shape[3];
+        let mut data = vec![0.0; input.data.len()];
+        for bn in 0..input.shape[0] {
+            for ch in 0..c {
+                let inv_std = (var.data[ch] + eps).sqrt().recip();
+                let g = gamma.data[ch] * inv_std;
+                let shift = beta.data[ch] - mean.data[ch] * g;
+                let base = (bn * c + ch) * hw;
+                for i in 0..hw {
+                    data[base + i] = input.data[base + i] * g + shift;
+                }
+            }
+        }
+        Ok(encode_tensor(Tensor {
+            shape: input.shape,
+            data,
+        }))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Op Registry
 // ---------------------------------------------------------------------------
@@ -379,6 +685,8 @@ pub fn tensor_op_registry() -> OpRegistry {
     registry.register("tensor.shape", Arc::new(Shape));
     registry.register("tensor.add", Arc::new(Add));
     registry.register("tensor.matmul", Arc::new(Matmul));
+    registry.register("tensor.conv2d", Arc::new(Conv2d));
+    registry.register("tensor.batch_norm", Arc::new(BatchNorm));
     registry
 }
 
@@ -516,10 +824,7 @@ mod tests {
     fn add_elementwise() {
         let v = call_fn(
             &Add,
-            &[
-                tensor(&[2], &[1.0, 2.0]),
-                tensor(&[2], &[10.0, 20.0]),
-            ],
+            &[tensor(&[2], &[1.0, 2.0]), tensor(&[2], &[10.0, 20.0])],
         )
         .unwrap();
         assert_eq!(v, tensor(&[2], &[11.0, 22.0]));
@@ -573,10 +878,266 @@ mod tests {
             )
             .is_err()
         );
+        assert!(call_fn(&Matmul, &[tensor(&[4], &[0.0; 4]), tensor(&[4], &[0.0; 4])]).is_err());
+    }
+
+    // ── conv2d ────────────────────────────────────────────────────────
+
+    #[test]
+    fn conv2d_1x1_kernel_is_per_pixel_scale() {
+        // input [1,2,1,2] = [[1,2],[3,4]] per channel; weight [2,2,1,1]
+        // picks out channels: out0 = 1·x0 + 2·x1, out1 = -x0 + 0·x1.
+        let input = tensor(&[1, 2, 1, 2], &[1.0, 2.0, 3.0, 4.0]);
+        let weight = tensor(&[2, 2, 1, 1], &[1.0, 2.0, -1.0, 0.0]);
+        let v = call_fn(&Conv2d, &[input, weight]).unwrap();
+        assert_eq!(v, tensor(&[1, 2, 1, 2], &[7.0, 10.0, -1.0, -2.0]));
+    }
+
+    #[test]
+    fn conv2d_3x3_with_padding() {
+        // input [1,1,2,2] = [[1,2],[3,4]]; all-ones 3x3 kernel, padding 1 →
+        // each output is the sum of the (zero-padded) 3x3 neighborhood.
+        let input = tensor(&[1, 1, 2, 2], &[1.0, 2.0, 3.0, 4.0]);
+        let weight = tensor(&[1, 1, 3, 3], &[1.0; 9]);
+        // args: (input, weight, bias=null, stride=null→1, padding=1).
+        let v = call_fn(
+            &Conv2d,
+            &[input, weight, Value::Null, Value::Null, json!(1)],
+        )
+        .unwrap();
+        // Pad 1 turns the 2x2 input into 4x4; a 3x3 window at output
+        // position (oy, ox) covers input rows/cols {oy−1, oy, oy+1} —
+        // which for oy ∈ {0, 1} always contains both real rows {0, 1}
+        // (the third row is padding). So every output sums all four
+        // input cells: 1+2+3+4 = 10.
+        assert_eq!(v, tensor(&[1, 1, 2, 2], &[10.0, 10.0, 10.0, 10.0]));
+    }
+
+    #[test]
+    fn conv2d_no_padding_valid_region() {
+        // input [1,1,3,3] = 1..9; 2x2 kernel [1,0;0,1] picks the diagonal.
+        let input = tensor(
+            &[1, 1, 3, 3],
+            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+        );
+        let weight = tensor(&[1, 1, 2, 2], &[1.0, 0.0, 0.0, 1.0]);
+        let v = call_fn(&Conv2d, &[input, weight]).unwrap();
+        // out(0,0)=1+5=6, (0,1)=2+6=8, (1,0)=4+8=12, (1,1)=5+9=14.
+        assert_eq!(v, tensor(&[1, 1, 2, 2], &[6.0, 8.0, 12.0, 14.0]));
+    }
+
+    #[test]
+    fn conv2d_stride_and_bias() {
+        // input [1,1,3,3] = 1..9; 2x2 all-ones kernel, stride 2, bias 10.
+        let input = tensor(
+            &[1, 1, 3, 3],
+            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+        );
+        let weight = tensor(&[1, 1, 2, 2], &[1.0; 4]);
+        let bias = tensor(&[1], &[10.0]);
+        let v = call_fn(&Conv2d, &[input, weight, bias, json!([2, 2])]).unwrap();
+        // h_out = (3−2)/2+1 = 1 (floor); only position (0,0): 1+2+4+5+10 = 22.
+        assert_eq!(v, tensor(&[1, 1, 1, 1], &[22.0]));
+    }
+
+    #[test]
+    fn conv2d_groups_depthwise() {
+        // Depthwise: groups = C_in = C_out = 2, per-channel 1x1 scales.
+        let input = tensor(&[1, 2, 1, 2], &[1.0, 2.0, 3.0, 4.0]);
+        let weight = tensor(&[2, 1, 1, 1], &[10.0, 100.0]);
+        let v = call_fn(
+            &Conv2d,
+            &[
+                input,
+                weight,
+                Value::Null,
+                Value::Null,
+                Value::Null,
+                json!(2),
+            ],
+        )
+        .unwrap();
+        assert_eq!(v, tensor(&[1, 2, 1, 2], &[10.0, 20.0, 300.0, 400.0]));
+    }
+
+    #[test]
+    fn conv2d_rejects_bad_shapes_and_params() {
+        let input = tensor(&[1, 1, 2, 2], &[1.0, 2.0, 3.0, 4.0]);
+        let weight = tensor(&[1, 1, 1, 1], &[1.0]);
+        // rank mismatch.
+        assert!(call_fn(&Conv2d, &[tensor(&[4], &[0.0; 4]), weight.clone()]).is_err());
+        // channel mismatch (weight has 2 in-channels, input 1).
         assert!(
             call_fn(
-                &Matmul,
-                &[tensor(&[4], &[0.0; 4]), tensor(&[4], &[0.0; 4])]
+                &Conv2d,
+                &[input.clone(), tensor(&[1, 2, 1, 1], &[1.0, 1.0])]
+            )
+            .is_err()
+        );
+        // bias wrong length.
+        assert!(
+            call_fn(
+                &Conv2d,
+                &[input.clone(), weight.clone(), tensor(&[2], &[1.0, 2.0])]
+            )
+            .is_err()
+        );
+        // kernel larger than input.
+        assert!(call_fn(&Conv2d, &[input.clone(), tensor(&[1, 1, 3, 3], &[1.0; 9])]).is_err());
+        // stride 0.
+        assert!(
+            call_fn(
+                &Conv2d,
+                &[input.clone(), weight.clone(), Value::Null, json!(0)]
+            )
+            .is_err()
+        );
+        // groups not dividing C_out.
+        assert!(
+            call_fn(
+                &Conv2d,
+                &[
+                    input.clone(),
+                    tensor(&[3, 1, 1, 1], &[1.0; 3]),
+                    Value::Null,
+                    Value::Null,
+                    Value::Null,
+                    json!(2)
+                ]
+            )
+            .is_err()
+        );
+        // arity: too few / too many.
+        assert!(call_fn(&Conv2d, &[input.clone()]).is_err());
+        assert!(
+            call_fn(
+                &Conv2d,
+                &[
+                    input,
+                    weight,
+                    Value::Null,
+                    Value::Null,
+                    Value::Null,
+                    Value::Null,
+                    Value::Null,
+                ]
+            )
+            .is_err()
+        );
+    }
+
+    // ── batch_norm ────────────────────────────────────────────────────
+
+    #[test]
+    fn batch_norm_normalizes_per_channel() {
+        // input [1,2,1,2] = [[1,2],[3,4]]; eps = 0 for exact math.
+        // c0: (x−0)/√1 ·1 +0 = x; c1: (x−3)/√4 ·2 +1 = x−2.
+        let input = tensor(&[1, 2, 1, 2], &[1.0, 2.0, 3.0, 4.0]);
+        let args = [
+            input,
+            tensor(&[2], &[1.0, 2.0]), // gamma
+            tensor(&[2], &[0.0, 1.0]), // beta
+            tensor(&[2], &[0.0, 3.0]), // mean
+            tensor(&[2], &[1.0, 4.0]), // var
+            json!(0),
+        ];
+        let v = call_fn(&BatchNorm, &args).unwrap();
+        assert_eq!(v, tensor(&[1, 2, 1, 2], &[1.0, 2.0, 1.0, 2.0]));
+    }
+
+    #[test]
+    fn batch_norm_default_eps_and_batch_dim() {
+        // N=2, C=1: x = (x − 5)/√(4 + 1e-5).
+        let input = tensor(&[2, 1, 1, 1], &[3.0, 7.0]);
+        let v = call_fn(
+            &BatchNorm,
+            &[
+                input,
+                tensor(&[1], &[1.0]),
+                tensor(&[1], &[0.0]),
+                tensor(&[1], &[5.0]),
+                tensor(&[1], &[4.0]),
+            ],
+        )
+        .unwrap();
+        let t = decode_tensor(&v).unwrap();
+        let inv = (4.0f64 + 1e-5).sqrt().recip();
+        assert!((t.data[0] - (3.0 - 5.0) * inv).abs() < 1e-12);
+        assert!((t.data[1] - (7.0 - 5.0) * inv).abs() < 1e-12);
+    }
+
+    #[test]
+    fn batch_norm_rejects_bad_shapes_and_eps() {
+        let input = tensor(&[1, 2, 1, 2], &[1.0, 2.0, 3.0, 4.0]);
+        let good = |p: &[f64]| tensor(&[2], p);
+        // non-rank-4 input.
+        assert!(
+            call_fn(
+                &BatchNorm,
+                &[
+                    tensor(&[4], &[0.0; 4]),
+                    good(&[1.0; 2]),
+                    good(&[0.0; 2]),
+                    good(&[0.0; 2]),
+                    good(&[1.0; 2]),
+                ]
+            )
+            .is_err()
+        );
+        // param wrong length (gamma [3] vs C=2).
+        assert!(
+            call_fn(
+                &BatchNorm,
+                &[
+                    input.clone(),
+                    tensor(&[3], &[1.0; 3]),
+                    good(&[0.0; 2]),
+                    good(&[0.0; 2]),
+                    good(&[1.0; 2]),
+                ]
+            )
+            .is_err()
+        );
+        // negative eps.
+        assert!(
+            call_fn(
+                &BatchNorm,
+                &[
+                    input.clone(),
+                    good(&[1.0; 2]),
+                    good(&[0.0; 2]),
+                    good(&[0.0; 2]),
+                    good(&[1.0; 2]),
+                    json!(-1),
+                ]
+            )
+            .is_err()
+        );
+        // arity: missing var / extra arg.
+        assert!(
+            call_fn(
+                &BatchNorm,
+                &[
+                    input.clone(),
+                    good(&[1.0; 2]),
+                    good(&[0.0; 2]),
+                    good(&[0.0; 2])
+                ]
+            )
+            .is_err()
+        );
+        assert!(
+            call_fn(
+                &BatchNorm,
+                &[
+                    input,
+                    good(&[1.0; 2]),
+                    good(&[0.0; 2]),
+                    good(&[0.0; 2]),
+                    good(&[1.0; 2]),
+                    json!(0),
+                    json!(0),
+                ]
             )
             .is_err()
         );
@@ -607,10 +1168,7 @@ mod tests {
         let mut ctx = EvalContext::new();
         let v = f
             .call(
-                &[
-                    tensor(&[1, 2], &[3.0, 4.0]),
-                    tensor(&[2, 1], &[5.0, 6.0]),
-                ],
+                &[tensor(&[1, 2], &[3.0, 4.0]), tensor(&[2, 1], &[5.0, 6.0])],
                 &mut ctx,
             )
             .unwrap();
