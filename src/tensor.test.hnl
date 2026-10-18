@@ -38,5 +38,11 @@ test_conv2d_padding := assert tensor.to_list(tensor.conv2d(tensor.from_list([[[[
 --- conv2d stride + bias: all-ones 2x2 over 1..9, stride 2, bias 10 → 22.
 test_conv2d_stride_bias := assert tensor.to_list(tensor.conv2d(tensor.from_list([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]), tensor.from_list([[[[1, 1], [1, 1]]]]), tensor.from_list([10]), 2)) = [[[[22]]]]
 
+--- max_pool: 2x2 kernel (stride defaults to kernel) over 1..16 → per-window maxima.
+test_max_pool := assert tensor.to_list(tensor.max_pool(tensor.from_list([[[[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]]]]), 2)) = [[[[6, 8], [14, 16]]]]
+
+--- max_pool with explicit stride 1: overlapping 2x2 windows over [[1,5,2],[3,4,6]].
+test_max_pool_stride := assert tensor.to_list(tensor.max_pool(tensor.from_list([[[[1, 5, 2], [3, 4, 6]]]]), [2, 2], [1, 1])) = [[[[5, 6]]]]
+
 --- batch_norm eval-mode, eps = 0: c0 identity (x−0)/1·1+0; c1 (x−3)/2·2+1 = x−2.
 test_batch_norm := assert tensor.to_list(tensor.batch_norm(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([1, 2]), tensor.from_list([0, 1]), tensor.from_list([0, 3]), tensor.from_list([1, 4]), 0)) = [[[[1, 2]], [[1, 2]]]]

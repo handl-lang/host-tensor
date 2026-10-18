@@ -1,7 +1,7 @@
 //! Rust `Function` impls for the `tensor` module — the handls (handlers)
 //! for the `op`/`handle` declarations in `src/index.hnl`.
 //!
-//! All 9 functions are FFI atoms: a tensor has no literal syntax and no
+//! All 10 functions are FFI atoms: a tensor has no literal syntax and no
 //! eval-vocabulary constructor, so construction, projection, and algebra
 //! cannot be expressed as pure handl arrows. The impls here are the
 //! host-side half runtimes compose: a consumer registers them in an
@@ -37,6 +37,7 @@ pub const TENSOR_OPS: &[&str] = &[
     "tensor.add",
     "tensor.matmul",
     "tensor.conv2d",
+    "tensor.max_pool",
     "tensor.batch_norm",
 ];
 
@@ -614,6 +615,85 @@ impl Function for Conv2d {
     }
 }
 
+/// The Rust handl for `op "tensor.max_pool" : Value... -> Tensor`.
+///
+/// NCHW max pooling: `max_pool(input, kernel, stride?)` with `input`
+/// rank-4 `[N, C, H, W]`; `kernel` an int `k` (→ `[k, k]`) or a
+/// `[kH, kW]` pair; `stride` `null`/absent (→ `kernel`), an int `s`
+/// (→ `[s, s]`), or `[sH, sW]`. Pooling applies per channel —
+/// `out[n, c, oy, ox]` is the max of the `kH × kW` window at
+/// `(oy·sH, ox·sW)`. The output is `[N, C, H_out, W_out]` with
+/// `H_out = (H − kH)/sH + 1` (likewise `W_out`, floor mode — a trailing
+/// partial window is dropped); kernel and stride must be positive and
+/// the kernel must fit the input. Naive `f64` loops.
+#[derive(Debug, Clone, Copy)]
+pub struct MaxPool;
+impl Function for MaxPool {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 2, 3, "tensor.max_pool")?;
+        let input = require_tensor(args, 0)?;
+        if input.shape.len() != 4 {
+            return Err(EvalError::Other(format!(
+                "tensor.max_pool: expected a rank-4 input [N, C, H, W], got rank {} ({:?})",
+                input.shape.len(),
+                input.shape
+            )));
+        }
+        if !has_opt_arg(args, 1) {
+            return Err(type_mismatch("tensor.max_pool: kernel", "missing"));
+        }
+        let [k_h, k_w] = opt_extent_pair(args, 1, [0, 0], "tensor.max_pool: kernel")?;
+        let [s_h, s_w] = opt_extent_pair(args, 2, [k_h, k_w], "tensor.max_pool: stride")?;
+        if k_h == 0 || k_w == 0 {
+            return Err(EvalError::Other(format!(
+                "tensor.max_pool: kernel must be positive, got [{k_h}, {k_w}]"
+            )));
+        }
+        if s_h == 0 || s_w == 0 {
+            return Err(EvalError::Other(format!(
+                "tensor.max_pool: stride must be positive, got [{s_h}, {s_w}]"
+            )));
+        }
+        let [n, c, h, w] = [
+            input.shape[0],
+            input.shape[1],
+            input.shape[2],
+            input.shape[3],
+        ];
+        if k_h > h || k_w > w {
+            return Err(EvalError::Other(format!(
+                "tensor.max_pool: kernel [{k_h}, {k_w}] exceeds input spatial dims [{h}, {w}]"
+            )));
+        }
+        let h_out = (h - k_h) / s_h + 1;
+        let w_out = (w - k_w) / s_w + 1;
+        let hw = h * w;
+        let mut data = vec![0.0; n * c * h_out * w_out];
+        for bn in 0..n {
+            for ch in 0..c {
+                let in_base = (bn * c + ch) * hw;
+                for oy in 0..h_out {
+                    for ox in 0..w_out {
+                        let mut acc = f64::NEG_INFINITY;
+                        for ky in 0..k_h {
+                            let iy = oy * s_h + ky;
+                            for kx in 0..k_w {
+                                let ix = ox * s_w + kx;
+                                acc = acc.max(input.data[in_base + iy * w + ix]);
+                            }
+                        }
+                        data[((bn * c + ch) * h_out + oy) * w_out + ox] = acc;
+                    }
+                }
+            }
+        }
+        Ok(encode_tensor(Tensor {
+            shape: vec![n, c, h_out, w_out],
+            data,
+        }))
+    }
+}
+
 /// The Rust handl for `op "tensor.batch_norm" : Value... -> Tensor`.
 ///
 /// Eval-mode (inference) batch normalization:
@@ -686,6 +766,7 @@ pub fn tensor_op_registry() -> OpRegistry {
     registry.register("tensor.add", Arc::new(Add));
     registry.register("tensor.matmul", Arc::new(Matmul));
     registry.register("tensor.conv2d", Arc::new(Conv2d));
+    registry.register("tensor.max_pool", Arc::new(MaxPool));
     registry.register("tensor.batch_norm", Arc::new(BatchNorm));
     registry
 }
@@ -1024,6 +1105,68 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    // ── max_pool ──────────────────────────────────────────────────────
+
+    #[test]
+    fn max_pool_2x2_default_stride() {
+        // input [1,1,4,4] = 1..16; 2x2 kernel, stride defaults to kernel.
+        let input = tensor(
+            &[1, 1, 4, 4],
+            &[
+                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
+                16.0,
+            ],
+        );
+        let v = call_fn(&MaxPool, &[input, json!(2)]).unwrap();
+        assert_eq!(v, tensor(&[1, 1, 2, 2], &[6.0, 8.0, 14.0, 16.0]));
+    }
+
+    #[test]
+    fn max_pool_per_channel_and_batch() {
+        // [1,2,2,2]: channel maxima are independent.
+        let input = tensor(&[1, 2, 2, 2], &[1.0, 9.0, 3.0, 4.0, 8.0, 2.0, 6.0, 5.0]);
+        let v = call_fn(&MaxPool, &[input, json!([2, 2])]).unwrap();
+        assert_eq!(v, tensor(&[1, 2, 1, 1], &[9.0, 8.0]));
+    }
+
+    #[test]
+    fn max_pool_stride_1_overlapping_windows() {
+        // input [1,1,2,3] = [[1,5,2],[3,4,6]]; 2x2 kernel, stride 1 →
+        // windows (0,0): max(1,5,3,4)=5, (0,1): max(5,2,4,6)=6.
+        let input = tensor(&[1, 1, 2, 3], &[1.0, 5.0, 2.0, 3.0, 4.0, 6.0]);
+        let v = call_fn(&MaxPool, &[input, json!([2, 2]), json!([1, 1])]).unwrap();
+        assert_eq!(v, tensor(&[1, 1, 1, 2], &[5.0, 6.0]));
+    }
+
+    #[test]
+    fn max_pool_stride_larger_than_window_drops_tail() {
+        // input [1,1,2,5] with kernel [1,3], stride [1,2] → floor: only
+        // windows at ox=0 and ox=2 count (ox=4 is a dropped tail).
+        let input = tensor(
+            &[1, 1, 2, 5],
+            &[1.0, 9.0, 2.0, 8.0, 3.0, 7.0, 4.0, 6.0, 5.0, 0.0],
+        );
+        let v = call_fn(&MaxPool, &[input, json!([1, 3]), json!([1, 2])]).unwrap();
+        // w_out = (5−3)/2+1 = 2; row 0 windows {1,9,2}→9 / {2,8,3}→8;
+        // row 1 windows {7,4,6}→7 / {6,5,0}→6.
+        assert_eq!(v, tensor(&[1, 1, 2, 2], &[9.0, 8.0, 7.0, 6.0]));
+    }
+
+    #[test]
+    fn max_pool_rejects_bad_params() {
+        let input = tensor(&[1, 1, 2, 2], &[1.0, 2.0, 3.0, 4.0]);
+        // non-rank-4 input.
+        assert!(call_fn(&MaxPool, &[tensor(&[4], &[0.0; 4]), json!(2)]).is_err());
+        // kernel larger than the input.
+        assert!(call_fn(&MaxPool, &[input.clone(), json!(3)]).is_err());
+        // zero kernel / stride.
+        assert!(call_fn(&MaxPool, &[input.clone(), json!(0)]).is_err());
+        assert!(call_fn(&MaxPool, &[input.clone(), json!(1), json!(0)]).is_err());
+        // missing kernel / extra arg.
+        assert!(call_fn(&MaxPool, &[input.clone()]).is_err());
+        assert!(call_fn(&MaxPool, &[input.clone(), json!(2), json!(2), json!(2)]).is_err());
     }
 
     // ── batch_norm ────────────────────────────────────────────────────

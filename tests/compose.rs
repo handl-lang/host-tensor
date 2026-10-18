@@ -62,7 +62,7 @@ fn registry_lookup_dispatches_qualified_names() {
 #[test]
 fn registry_lookup_unknown_names_miss() {
     let registry = ModuleRegistry::new().with(tensor_module());
-    assert!(registry.lookup("tensor.max_pool").is_none());
+    assert!(registry.lookup("tensor.softmax").is_none());
     assert!(registry.lookup("other.zeros").is_none());
 }
 

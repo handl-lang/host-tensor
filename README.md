@@ -4,7 +4,7 @@ Host-side tensor functions for handl runtimes — a dense n-d `f64` array
 (row-major) behind the `tensor.*` op surface. Runtimes compose this
 component to give `.hnl` code tensor ops; catopt is the first consumer.
 
-The surface (9 FFI atoms, `src/index.hnl` is the single source of truth):
+The surface (10 FFI atoms, `src/index.hnl` is the single source of truth):
 
 | op | signature | semantics |
 |---|---|---|
@@ -16,16 +16,19 @@ The surface (9 FFI atoms, `src/index.hnl` is the single source of truth):
 | `tensor.add` | `(Tensor * Tensor) -> Tensor` | elementwise, identical shapes |
 | `tensor.matmul` | `(Tensor * Tensor) -> Tensor` | rank-2 `(m×k)·(k×n)`, naive loop |
 | `tensor.conv2d` | `Value... -> Tensor` | NCHW cross-correlation `(input, weight, bias?, stride?, padding?, groups?)` |
+| `tensor.max_pool` | `Value... -> Tensor` | NCHW max pooling `(input, kernel, stride?)`; stride defaults to kernel |
 | `tensor.batch_norm` | `Value... -> Tensor` | eval-mode per-channel affine `(input, gamma, beta, mean, var, eps?)` |
 
-**Positional optionals** — `conv2d`/`batch_norm` take optional trailing
+**Positional optionals** — `conv2d`/`max_pool`/`batch_norm` take optional trailing
 parameters; a `null` (or a missing argument) selects the default, so
 `conv2d(x, w, null, [2, 2])` is "no bias, stride 2×2". `conv2d` consumes
 `input [N, C_in, H, W]` × `weight [C_out, C_in/groups, kH, kW]` (`bias?`
 rank-1 `[C_out]`; `stride?`/`padding?` an int or `[h, w]` pair;
 `groups?` a positive int — `groups = C_in = C_out` is depthwise).
 `batch_norm` computes `(x − μ)/√(σ²+ε)·γ+β` per channel with rank-1 `[C]`
-parameters and `eps` defaulting to `1e-5`. Both run naive `f64` loops —
+parameters and `eps` defaulting to `1e-5`. `max_pool` pools each channel's
+`kH × kW` windows (kernel/stride an int or `[h, w]` pair; floor mode —
+trailing partial windows drop). All run naive `f64` loops —
 the composition seam, not BLAS.
 
 **Tensor wire value** — data on the `serde_json::Value` boundary, tagged in
@@ -85,8 +88,8 @@ cargo test                            # the Rust suite (codec + ops + dispatch)
 ## Follow-up (the catopt-shaped surface)
 
 Deliberately out of scope so far — the composition seam is the
-point, not BLAS: `tensor.max_pool` and friends (NCHW layout
-params), broadcasting `add`/`mul`, `reshape`/`transpose`/`concat`, batched
+point, not BLAS: ~~`tensor.max_pool` and friends (NCHW layout
+params)~~, broadcasting `add`/`mul`, `reshape`/`transpose`/`concat`, batched
 `matmul`, `tensor.derive` (autodiff value: primal + adjoint for the
 optimization-loop host functions), a real `Tensor` scalar in
 `value_types.yaml` + `TaggedValue::Tensor` (opaque `Rc` payload instead of
