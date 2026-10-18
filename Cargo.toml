@@ -23,7 +23,7 @@ handl-plugin-module = { git = "https://github.com/handl-lang/host", branch = "ma
 handl-language = { git = "https://github.com/handl-lang/kernel", branch = "main" }
 handl-value = { git = "https://github.com/handl-lang/kernel", branch = "main" }
 handl-runtime = { git = "https://github.com/handl-lang/host", branch = "main" }
-handl-kit-data-canonical = { git = "https://github.com/handl-lang/lang", branch = "main" }
+handl-kit-data-canonical = { git = "https://github.com/handl-lang/kit-data-canonical", branch = "main" }
 hnl-engine-lex-pattern = { git = "https://github.com/handl-lang/engine-lex-pattern", branch = "main" }
 hnl-engine-parse-pratt = { git = "https://github.com/handl-lang/engine-parse-pratt", branch = "main" }
 hnl-engine-exec = { git = "https://github.com/handl-lang/engine-exec", branch = "main" }
@@ -70,8 +70,8 @@ hnl-engine-typecheck = { path = "../engine-typecheck" }
 handl-language = { path = "../kernel/crates/handl-language" }
 handl-value = { path = "../kernel/crates/handl-value" }
 
-[patch."https://github.com/handl-lang/lang"]
-handl-kit-data-canonical = { path = "../lang/crates/handl-kit-data-canonical" }
+[patch."https://github.com/handl-lang/kit-data-canonical"]
+handl-kit-data-canonical = { path = "../kit-data-canonical/crates/handl-kit-data-canonical" }
 
 [patch."https://github.com/handl-lang/lib-ops"]
 handl-lib-ops = { path = "../kernel/crates/ops" }
