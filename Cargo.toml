@@ -30,18 +30,6 @@ hnl-engine-exec = { git = "https://github.com/handl-lang/engine-exec", branch = 
 hnl-engine-exec-tree-walk = { git = "https://github.com/handl-lang/engine-exec-tree-walk", branch = "main" }
 hnl-engine-exec-bytecode = { git = "https://github.com/handl-lang/engine-exec-bytecode", branch = "main" }
 
-[patch."https://github.com/handl-lang/kernel"]
-handl-language = { path = "../kernel/crates/handl-language" }
-handl-value = { path = "../kernel/crates/handl-value" }
-
-[patch."https://github.com/handl-lang/platform"]
-handl-platform = { path = "../platform/crates/platform" }
-handl-plugin-ext-diag = { path = "../platform/crates/plugin-ext-diag" }
-handl-plugin-lib-handl = { path = "../platform/crates/plugin-lib-handl" }
-handl-plugin-module = { path = "../platform/crates/plugin-module" }
-handl-kit-data = { path = "../platform/crates/handl-kit-data" }
-handl-runtime = { path = "../platform/crates/handl-runtime" }
-
 [patch."https://github.com/handl-lang/engine"]
 hnl-engine = { path = "../engine" }
 
@@ -57,11 +45,11 @@ hnl-engine-exec-tree-walk = { path = "../engine-exec-tree-walk" }
 [patch."https://github.com/handl-lang/engine-lex"]
 hnl-engine-lex = { path = "../engine-lex" }
 
-[patch."https://github.com/handl-lang/engine-lint"]
-hnl-engine-lint = { path = "../engine-lint" }
-
 [patch."https://github.com/handl-lang/engine-lex-pattern"]
 hnl-engine-lex-pattern = { path = "../engine-lex-pattern" }
+
+[patch."https://github.com/handl-lang/engine-lint"]
+hnl-engine-lint = { path = "../engine-lint" }
 
 [patch."https://github.com/handl-lang/engine-parse"]
 hnl-engine-parse = { path = "../engine-parse" }
@@ -69,17 +57,29 @@ hnl-engine-parse = { path = "../engine-parse" }
 [patch."https://github.com/handl-lang/engine-parse-pratt"]
 hnl-engine-parse-pratt = { path = "../engine-parse-pratt" }
 
-[patch."https://github.com/handl-lang/engine-typecheck"]
-hnl-engine-typecheck = { path = "../engine-typecheck" }
-
 [patch."https://github.com/handl-lang/engine-transform"]
 hnl-engine-transform = { path = "../engine-transform" }
 
 [patch."https://github.com/handl-lang/engine-transform-rewrite"]
 hnl-engine-transform-rewrite = { path = "../engine-transform-rewrite" }
 
+[patch."https://github.com/handl-lang/engine-typecheck"]
+hnl-engine-typecheck = { path = "../engine-typecheck" }
+
+[patch."https://github.com/handl-lang/kernel"]
+handl-language = { path = "../kernel/crates/handl-language" }
+handl-value = { path = "../kernel/crates/handl-value" }
+
 [patch."https://github.com/handl-lang/lang"]
 handl-kit-data-canonical = { path = "../lang/crates/handl-kit-data-canonical" }
 
 [patch."https://github.com/handl-lang/lib-ops"]
 handl-lib-ops = { path = "../lib-ops" }
+
+[patch."https://github.com/handl-lang/platform"]
+handl-kit-data = { path = "../platform/crates/handl-kit-data" }
+handl-platform = { path = "../platform/crates/platform" }
+handl-plugin-ext-diag = { path = "../platform/crates/plugin-ext-diag" }
+handl-plugin-lib-handl = { path = "../platform/crates/plugin-lib-handl" }
+handl-plugin-module = { path = "../platform/crates/plugin-module" }
+handl-runtime = { path = "../platform/crates/handl-runtime" }
