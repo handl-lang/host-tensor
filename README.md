@@ -135,7 +135,7 @@ ci.sh                bupha entry: hnl gate + cargo test
 ## Gate
 
 ```bash
-HNL=../cli/target/debug/hnl ./ci.sh   # hnl typecheck/lint/test + cargo test
+HNL=../host-cli/target/debug/hnl ./ci.sh   # hnl typecheck/lint/test + cargo test
 cargo test                            # the Rust suite (codec + ops + dispatch)
 ```
 

@@ -4,14 +4,14 @@
 # Sources live in `src/` (one package per repo, ADR-0128 split). Nothing else
 # covers them — `cargo` never sees `.hnl`.
 #
-# Usage:  HNL=../cli/target/debug/hnl scripts/hnl-gate.sh
+# Usage:  HNL=../host-cli/target/debug/hnl scripts/hnl-gate.sh
 set -euo pipefail
 
 SRC_DIR="${SRC_DIR:-src}"
-HNL="${HNL:-../cli/target/debug/hnl}"
+HNL="${HNL:-../host-cli/target/debug/hnl}"
 if [ ! -x "$HNL" ]; then
   echo "error: no hnl binary at '$HNL'" >&2
-  echo "       build it:   (cd ../cli && cargo build --bin hnl)" >&2
+  echo "       build it:   (cd ../host-cli && cargo build --bin hnl)" >&2
   exit 1
 fi
 
