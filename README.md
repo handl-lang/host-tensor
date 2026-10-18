@@ -4,7 +4,7 @@ Host-side tensor functions for handl runtimes — a dense n-d `f64` array
 (row-major) behind the `tensor.*` op surface. Runtimes compose this
 component to give `.hnl` code tensor ops; catopt is the first consumer.
 
-The surface (13 FFI atoms, `src/index.hnl` is the single source of truth):
+The surface (16 FFI atoms, `src/index.hnl` is the single source of truth):
 
 | op | signature | semantics |
 |---|---|---|
@@ -21,6 +21,9 @@ The surface (13 FFI atoms, `src/index.hnl` is the single source of truth):
 | `tensor.conv2d` | `Value... -> Tensor` | NCHW cross-correlation `(input, weight, bias?, stride?, padding?, groups?)` |
 | `tensor.max_pool` | `Value... -> Tensor` | NCHW max pooling `(input, kernel, stride?)`; stride defaults to kernel |
 | `tensor.batch_norm` | `Value... -> Tensor` | eval-mode per-channel affine `(input, gamma, beta, mean, var, eps?)` |
+| `tensor.reshape` | `(Tensor * (List Int)) -> Tensor` | re-label under `shape` (product must match) |
+| `tensor.transpose` | `(Tensor * Int * Int) -> Tensor` | swap axes `d0`/`d1` |
+| `tensor.concat` | `(Array * Int) -> Tensor` | join a list of same-rank tensors along `axis` |
 
 **Broadcasting** — the elementwise four (`add`/`mul`/`sub`/`div`)
 follow numpy rules: trailing dims align, a `1`-dim stretches, a missing
@@ -40,6 +43,13 @@ parameters and `eps` defaulting to `1e-5`. `max_pool` pools each channel's
 `kH × kW` windows (kernel/stride an int or `[h, w]` pair; floor mode —
 trailing partial windows drop). All run naive `f64` loops —
 the composition seam, not BLAS.
+
+**Shape manipulation** — `reshape(t, shape)` keeps the row-major
+payload and requires the new extents' product to equal the element
+count (no `-1` wildcard); `transpose(t, d0, d1)` swaps two axes;
+`concat(xs, axis)` joins a non-empty list of same-rank tensors that
+agree on every axis but `axis`, whose extents sum — `axis 0` stacks,
+`axis rank−1` appends along the fastest-varying axis.
 
 **Tensor wire value** — data on the `serde_json::Value` boundary, tagged in
 the `__bytes__` style (ADR-0083 §2.1); a plain object to engines with no
@@ -100,7 +110,7 @@ cargo test                            # the Rust suite (codec + ops + dispatch)
 Deliberately out of scope so far — the composition seam is the
 point, not BLAS: ~~`tensor.max_pool` and friends (NCHW layout
 params)~~, ~~broadcasting `add`/`mul`/`sub`/`div`~~,
-`reshape`/`transpose`/`concat`, batched
+~~`reshape`/`transpose`/`concat`~~, batched
 `matmul`, `tensor.derive` (autodiff value: primal + adjoint for the
 optimization-loop host functions), a real `Tensor` scalar in
 `value_types.yaml` + `TaggedValue::Tensor` (opaque `Rc` payload instead of

@@ -58,3 +58,12 @@ test_max_pool_stride := assert tensor.to_list(tensor.max_pool(tensor.from_list([
 
 --- batch_norm eval-mode, eps = 0: c0 identity (x−0)/1·1+0; c1 (x−3)/2·2+1 = x−2.
 test_batch_norm := assert tensor.to_list(tensor.batch_norm(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([1, 2]), tensor.from_list([0, 1]), tensor.from_list([0, 3]), tensor.from_list([1, 4]), 0)) = [[[[1, 2]], [[1, 2]]]]
+
+test_reshape := assert tensor.to_list(tensor.reshape(tensor.from_list([[1, 2, 3], [4, 5, 6]]), [3, 2])) = [[1, 2], [3, 4], [5, 6]]
+
+test_transpose := assert tensor.to_list(tensor.transpose(tensor.from_list([[1, 2, 3], [4, 5, 6]]), 0, 1)) = [[1, 4], [2, 5], [3, 6]]
+
+--- concat axis 0 stacks, axis 1 appends columns.
+test_concat_axis0 := assert tensor.to_list(tensor.concat([tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6]])], 0)) = [[1, 2], [3, 4], [5, 6]]
+
+test_concat_axis1 := assert tensor.to_list(tensor.concat([tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5], [6]])], 1)) = [[1, 2, 5], [3, 4, 6]]
