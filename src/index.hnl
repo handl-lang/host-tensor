@@ -1,10 +1,11 @@
 --- tensor -- host-side dense n-d tensor functions (f64, row-major).
 ---
---- Single source of truth for the `tensor` host-function surface: 16 ops
+--- Single source of truth for the `tensor` host-function surface: 18 ops
 --- covering construction (`zeros`, `ones`, `from_list`), projection
 --- (`shape`, `to_list`), algebra (`add`/`mul`/`sub`/`div`, `matmul`,
---- `conv2d`, `max_pool`, `batch_norm`), and shape manipulation
---- (`reshape`, `transpose`, `concat`). A *runtime* (catopt
+--- `conv2d`, `max_pool`, `batch_norm`), shape manipulation (`reshape`,
+--- `transpose`, `concat`), and derivatives (`derive`,
+--- `batch_norm_backward`). A *runtime* (catopt
 --- is the first consumer) composes this package by building a `HandlModule`
 --- with the Rust `OpRegistry` this repo ships (`tensor_op_registry`), so
 --- the `tensor.*` string callees resolve to native impls; nothing in the
@@ -19,7 +20,7 @@
 --- staying a plain object to engines that have no `Tensor` scalar type —
 --- promoting one in `value_types.yaml` later changes no wire shape.
 ---
---- All 16 functions are FFI atoms: a tensor has no literal syntax and no
+--- All 18 functions are FFI atoms: a tensor has no literal syntax and no
 --- eval-vocabulary constructor, so construction, projection, and algebra
 --- cannot be expressed as pure handl arrows. The `op`/`handle` declaration
 --- form (ADR-0077 Phase 2) declares the interface; the Rust `Function`
@@ -55,6 +56,17 @@
 --- non-empty list of same-rank tensors that agree on every axis but
 --- `axis`, whose extents sum.
 ---
+--- `tensor.derive(name)` returns the qualified op name of the adjoint
+--- registered for `name` (qualified or bare local), or `null` when no
+--- pair exists — a *registered-pairs* table, not autodiff: a `.hnl`
+--- function name gets `null` since a host `Function` sees only
+--- evaluated argument values. The only pair so far maps
+--- `tensor.batch_norm` to `tensor.batch_norm_backward(input, gamma,
+--- beta, mean, var, grad_out, eps?)` — the primal signature plus the
+--- upstream gradient — which returns the differentiable inputs' grads
+--- `{"input": dx, "gamma": dγ, "beta": dβ}` (mean/var are statistical
+--- in eval mode and carry none).
+---
 --- ## Capability declarations (ADR-0077 Phase 4)
 --- tensor.zeros -- a tensor of `shape` filled with 0.0.
 --- tensor.ones -- a tensor of `shape` filled with 1.0.
@@ -72,6 +84,8 @@
 --- tensor.reshape -- `t` re-labeled under `shape` (product must equal the element count).
 --- tensor.transpose -- `t` with axes `d0`/`d1` swapped.
 --- tensor.concat -- `xs` joined along `axis` (same rank, other axes equal).
+--- tensor.batch_norm_backward -- adjoint of `tensor.batch_norm`: `(input, gamma, beta, mean, var, grad_out, eps?) -> {input, gamma, beta}`.
+--- tensor.derive -- the adjoint op name registered for `name` (qualified or bare local), or `null`.
 cap "tensor.zeros"
 cap "tensor.ones"
 cap "tensor.from_list"
@@ -88,6 +102,8 @@ cap "tensor.batch_norm"
 cap "tensor.reshape"
 cap "tensor.transpose"
 cap "tensor.concat"
+cap "tensor.batch_norm_backward"
+cap "tensor.derive"
 op "tensor.zeros" : (List Int) -> Tensor
   guarantee: True
 op "tensor.ones" : (List Int) -> Tensor
@@ -126,6 +142,12 @@ op "tensor.transpose" : (Tensor * Int * Int) -> Tensor
   guarantee: True
 op "tensor.concat" : (Array * Int) -> Tensor
   guarantee: True
+--- batch_norm_backward(input, gamma, beta, mean, var, grad_out, eps?) —
+--- primal signature + upstream grad → {input, gamma, beta} grads.
+op "tensor.batch_norm_backward" : Value... -> Value
+  guarantee: True
+op "tensor.derive" : String -> Value
+  guarantee: True
 handle "tensor.zeros" with rust_tensor_zeros
 handle "tensor.ones" with rust_tensor_ones
 handle "tensor.from_list" with rust_tensor_from_list
@@ -142,6 +164,8 @@ handle "tensor.batch_norm" with rust_tensor_batch_norm
 handle "tensor.reshape" with rust_tensor_reshape
 handle "tensor.transpose" with rust_tensor_transpose
 handle "tensor.concat" with rust_tensor_concat
+handle "tensor.batch_norm_backward" with rust_tensor_batch_norm_backward
+handle "tensor.derive" with rust_tensor_derive
 
 --- The `tensor` namespace record — `from "host-tensor" import tensor` binds
 --- the whole surface at once (each field is the qualified-name string the
@@ -163,5 +187,7 @@ export tensor := {
   batch_norm: "tensor.batch_norm",
   reshape: "tensor.reshape",
   transpose: "tensor.transpose",
-  concat: "tensor.concat"
+  concat: "tensor.concat",
+  batch_norm_backward: "tensor.batch_norm_backward",
+  derive: "tensor.derive"
 }

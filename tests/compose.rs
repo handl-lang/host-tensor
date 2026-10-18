@@ -87,6 +87,43 @@ fn registry_lookup_dispatches_conv2d() {
     assert_eq!(out, tensor(&[1, 2, 1, 2], &[7.0, 10.0, -1.0, -2.0]));
 }
 
+/// `tensor.derive` through the module chain: the returned adjoint name
+/// resolves on the same registry — the optimization-loop usage story.
+#[test]
+fn registry_lookup_dispatches_derive_adjoint_chain() {
+    let registry = ModuleRegistry::new().with(tensor_module());
+    let derive = registry
+        .lookup("tensor.derive")
+        .expect("tensor.derive should resolve through the module chain");
+    let mut ctx = EvalContext::new();
+    let name = derive.call(&[json!("batch_norm")], &mut ctx).unwrap();
+    assert_eq!(name, json!("tensor.batch_norm_backward"));
+
+    let backward = registry
+        .lookup(name.as_str().unwrap())
+        .expect("the derived adjoint name should resolve on the same registry");
+    let grads = backward
+        .call(
+            &[
+                tensor(&[1, 2, 1, 2], &[1.0, 2.0, 3.0, 4.0]), // input
+                tensor(&[2], &[1.0, 2.0]),                    // gamma
+                tensor(&[2], &[0.0, 1.0]),                    // beta
+                tensor(&[2], &[0.0, 3.0]),                    // mean
+                tensor(&[2], &[1.0, 4.0]),                    // var
+                tensor(&[1, 2, 1, 2], &[0.5, 1.0, 1.5, 2.0]), // grad_out
+                json!(0),                                     // eps
+            ],
+            &mut ctx,
+        )
+        .unwrap();
+    assert_eq!(grads["beta"], tensor(&[2], &[1.5, 3.5]));
+    // And an unpaired name maps to null.
+    assert_eq!(
+        derive.call(&[json!("tensor.conv2d")], &mut ctx).unwrap(),
+        Value::Null
+    );
+}
+
 /// A second host module composed alongside tensor — the point of the seam:
 /// providers are independent rows in the consumer's registry.
 #[test]

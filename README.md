@@ -4,7 +4,7 @@ Host-side tensor functions for handl runtimes — a dense n-d `f64` array
 (row-major) behind the `tensor.*` op surface. Runtimes compose this
 component to give `.hnl` code tensor ops; catopt is the first consumer.
 
-The surface (16 FFI atoms, `src/index.hnl` is the single source of truth):
+The surface (18 FFI atoms, `src/index.hnl` is the single source of truth):
 
 | op | signature | semantics |
 |---|---|---|
@@ -24,6 +24,8 @@ The surface (16 FFI atoms, `src/index.hnl` is the single source of truth):
 | `tensor.reshape` | `(Tensor * (List Int)) -> Tensor` | re-label under `shape` (product must match) |
 | `tensor.transpose` | `(Tensor * Int * Int) -> Tensor` | swap axes `d0`/`d1` |
 | `tensor.concat` | `(Array * Int) -> Tensor` | join a list of same-rank tensors along `axis` |
+| `tensor.batch_norm_backward` | `Value... -> Value` | adjoint of `batch_norm`: primal args + `grad_out` → `{input, gamma, beta}` |
+| `tensor.derive` | `String -> Value` | registered adjoint op name for `name`, or `null` |
 
 **Broadcasting** — the elementwise four (`add`/`mul`/`sub`/`div`)
 follow numpy rules: trailing dims align, a `1`-dim stretches, a missing
@@ -55,6 +57,33 @@ agree on every axis but `axis`, whose extents sum — `axis 0` stacks,
 [B, k, n] → [B, m, n]` for rank-3, with the batch dim broadcasting (a
 rank-2 operand or a `B = 1` batch repeats across the other's batches);
 rank-2 × rank-2 stays the plain `(m×k)·(k×n)` product.
+
+**Derivatives** — `tensor.derive(name)` returns the qualified op name
+of the adjoint registered for `name` in the `DERIV_PAIRS` table
+(qualified or bare local name; `null` when no pair exists), and the
+returned name resolves through the same `ModuleRegistry` — so a `.hnl`
+optimization loop can dispatch it. Adjoint signatures mirror the primal
+plus the upstream gradient and return the differentiable inputs' grads
+keyed by parameter name: `batch_norm_backward(input, gamma, beta,
+mean, var, grad_out, eps?)` → `{"input": dx, "gamma": dγ, "beta": dβ}`
+(`mean`/`var` are statistical in eval mode and carry no grad). The only
+pair so far is `tensor.batch_norm → tensor.batch_norm_backward`.
+
+**`tensor.derive` is a registered-pairs table, not autodiff**
+(investigated this slice). What a true `derive` would take differs by
+target: for *host* ops the table is the honest minimal version — an
+adjoint is another `Function` in the same registry, so `derive` is a
+name lookup and the pairs are maintained by hand (the
+`deriv_pairs_are_all_registered` test pins that every pair's impl
+exists). For a `.hnl` *function*'s forward+backward, the host boundary
+sees only a name string and evaluated argument values — `EvalContext`
+can dispatch `ctx.call_function(name, …)` (so a finite-difference
+gradient thunk is *possible*, but numerically approximate and O(inputs)
+primal calls per grad), while an exact adjoint needs real autodiff
+machinery outside this component: a source-to-source AD pass over the
+`.hnl` AST (kit/language layer — the AST never crosses the `Function`
+boundary) or a reverse-mode tape in the eval engine over
+`Tensor`-aware primitives. Deferred; the pairs table is the surface.
 
 **Tensor wire value** — data on the `serde_json::Value` boundary, tagged in
 the `__bytes__` style (ADR-0083 §2.1); a plain object to engines with no
@@ -116,8 +145,9 @@ Deliberately out of scope so far — the composition seam is the
 point, not BLAS: ~~`tensor.max_pool` and friends (NCHW layout
 params)~~, ~~broadcasting `add`/`mul`/`sub`/`div`~~,
 ~~`reshape`/`transpose`/`concat`~~, ~~batched `matmul`~~,
-`tensor.derive` (autodiff value: primal + adjoint for the
-optimization-loop host functions), a real `Tensor` scalar in
+~~`tensor.derive`~~ (landed as a registered-pairs table + one adjoint —
+`.hnl`-function autodiff is the deferred half; see the finding below),
+a real `Tensor` scalar in
 `value_types.yaml` + `TaggedValue::Tensor` (opaque `Rc` payload instead of
 the tagged-object encoding — see the finding below), and dtype promotion
 beyond `f64`.

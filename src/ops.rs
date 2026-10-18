@@ -1,7 +1,7 @@
 //! Rust `Function` impls for the `tensor` module — the handls (handlers)
 //! for the `op`/`handle` declarations in `src/index.hnl`.
 //!
-//! All 16 functions are FFI atoms: a tensor has no literal syntax and no
+//! All 18 functions are FFI atoms: a tensor has no literal syntax and no
 //! eval-vocabulary constructor, so construction, projection, and algebra
 //! cannot be expressed as pure handl arrows. The impls here are the
 //! host-side half runtimes compose: a consumer registers them in an
@@ -45,7 +45,16 @@ pub const TENSOR_OPS: &[&str] = &[
     "tensor.reshape",
     "tensor.transpose",
     "tensor.concat",
+    "tensor.batch_norm_backward",
+    "tensor.derive",
 ];
+
+/// Forward op name → registered adjoint op name, the table
+/// `tensor.derive` reads. A pair is only listed when the adjoint impl
+/// exists in [`tensor_op_registry`], so `derive`'s result always
+/// resolves through `ModuleLookup::lookup` on the same module — a
+/// `.hnl` optimization loop can call the returned name sight unseen.
+pub const DERIV_PAIRS: &[(&str, &str)] = &[("tensor.batch_norm", "tensor.batch_norm_backward")];
 
 // ---------------------------------------------------------------------------
 // The tensor codec
@@ -1106,6 +1115,119 @@ impl Function for Concat {
 }
 
 // ---------------------------------------------------------------------------
+// Derivatives
+// ---------------------------------------------------------------------------
+
+/// The Rust handl for `op "tensor.batch_norm_backward" : Value... -> Value`.
+///
+/// The adjoint [`DERIV_PAIRS`] registers for `tensor.batch_norm` — what
+/// `tensor.derive("batch_norm")` resolves to. The signature mirrors the
+/// primal plus the upstream gradient: `batch_norm_backward(input,
+/// gamma, beta, mean, var, grad_out, eps?)`. It returns an object of
+/// the gradients of the primal's *differentiable* inputs —
+/// `{"input": dx, "gamma": dγ, "beta": dβ}` — `mean`/`var` are
+/// statistical in eval mode and carry no grad. Per channel `c`, with
+/// `x̂ = (x − μ_c)/√(σ²_c + ε)` and upstream grad `g`:
+/// `dβ_c = Σ g`, `dγ_c = Σ g·x̂`, `dx = g·γ_c·inv_std_c` (sums over the
+/// batch and spatial dims).
+#[derive(Debug, Clone, Copy)]
+pub struct BatchNormBackward;
+impl Function for BatchNormBackward {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 6, 7, "tensor.batch_norm_backward")?;
+        let input = require_tensor(args, 0)?;
+        if input.shape.len() != 4 {
+            return Err(EvalError::Other(format!(
+                "tensor.batch_norm_backward: expected a rank-4 input [N, C, H, W], \
+                 got rank {} ({:?})",
+                input.shape.len(),
+                input.shape
+            )));
+        }
+        let c = input.shape[1];
+        let params: Vec<Tensor> = (1..5)
+            .map(|pos| require_tensor(args, pos))
+            .collect::<Result<_, _>>()?;
+        let names = ["gamma", "beta", "mean", "var"];
+        for (name, p) in names.iter().zip(params.iter()) {
+            if p.shape != [c] {
+                return Err(EvalError::Other(format!(
+                    "tensor.batch_norm_backward: {name} shape {:?} != [{c}]",
+                    p.shape
+                )));
+            }
+        }
+        let [gamma, _beta, mean, var] = [&params[0], &params[1], &params[2], &params[3]];
+        let grad = require_tensor(args, 5)?;
+        if grad.shape != input.shape {
+            return Err(EvalError::Other(format!(
+                "tensor.batch_norm_backward: grad_out shape {:?} != input shape {:?}",
+                grad.shape, input.shape
+            )));
+        }
+        let eps = opt_nonneg_float(args, 6, 1e-5, "tensor.batch_norm_backward: eps")?;
+        let hw = input.shape[2] * input.shape[3];
+        let mut dx = vec![0.0; input.data.len()];
+        let mut dgamma = vec![0.0; c];
+        let mut dbeta = vec![0.0; c];
+        for bn in 0..input.shape[0] {
+            for ch in 0..c {
+                let inv_std = (var.data[ch] + eps).sqrt().recip();
+                let scale = gamma.data[ch] * inv_std;
+                let base = (bn * c + ch) * hw;
+                for i in 0..hw {
+                    let g = grad.data[base + i];
+                    let x_hat = (input.data[base + i] - mean.data[ch]) * inv_std;
+                    dbeta[ch] += g;
+                    dgamma[ch] += g * x_hat;
+                    dx[base + i] = g * scale;
+                }
+            }
+        }
+        Ok(json!({
+            "input": encode_tensor(Tensor { shape: input.shape, data: dx }),
+            "gamma": encode_tensor(Tensor { shape: vec![c], data: dgamma }),
+            "beta": encode_tensor(Tensor { shape: vec![c], data: dbeta }),
+        }))
+    }
+}
+
+/// The Rust handl for `op "tensor.derive" : String -> Value`.
+///
+/// Returns the qualified op name of the adjoint registered for `name`
+/// in [`DERIV_PAIRS`], or `null` when no pair exists. `name` may be
+/// qualified (`"tensor.batch_norm"`) or a bare local name
+/// (`"batch_norm"` → `"tensor.batch_norm"`). The result resolves
+/// through `ModuleLookup::lookup` on the same registry, so an
+/// optimization-loop consumer can dispatch it directly.
+///
+/// This is a *registered-pairs* table, not autodiff: a `.hnl` function
+/// name gets `null` — a host `Function` sees only evaluated argument
+/// values, so deriving an adjoint for `.hnl` source would need a
+/// source-level transform or a reverse-mode tape in the eval engine
+/// (README follow-up).
+#[derive(Debug, Clone, Copy)]
+pub struct Derive;
+impl Function for Derive {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        handl_lib_ops::shared::require_arg_count(args, 1)?;
+        let name = args[0]
+            .as_str()
+            .ok_or_else(|| type_mismatch("tensor.derive: op name (string)", "non-string"))?;
+        let qualified = if name.contains('.') {
+            name.to_string()
+        } else {
+            format!("tensor.{name}")
+        };
+        let adjoint = DERIV_PAIRS
+            .iter()
+            .find(|(f, _)| *f == qualified)
+            .map(|(_, b)| *b);
+        Ok(adjoint.map_or(Value::Null, |b| json!(b)))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Op Registry
 // ---------------------------------------------------------------------------
 
@@ -1129,6 +1251,8 @@ pub fn tensor_op_registry() -> OpRegistry {
     registry.register("tensor.reshape", Arc::new(Reshape));
     registry.register("tensor.transpose", Arc::new(Transpose));
     registry.register("tensor.concat", Arc::new(Concat));
+    registry.register("tensor.batch_norm_backward", Arc::new(BatchNormBackward));
+    registry.register("tensor.derive", Arc::new(Derive));
     registry
 }
 
@@ -1956,7 +2080,137 @@ mod tests {
         );
     }
 
+    // ── derive / batch_norm_backward ──────────────────────────────────
+
+    #[test]
+    fn derive_resolves_registered_pairs() {
+        // Qualified and bare-local names both hit the pair.
+        assert_eq!(
+            call_fn(&Derive, &[json!("tensor.batch_norm")]).unwrap(),
+            json!("tensor.batch_norm_backward")
+        );
+        assert_eq!(
+            call_fn(&Derive, &[json!("batch_norm")]).unwrap(),
+            json!("tensor.batch_norm_backward")
+        );
+    }
+
+    #[test]
+    fn derive_returns_null_for_unpaired_and_rejects_non_string() {
+        assert_eq!(
+            call_fn(&Derive, &[json!("tensor.conv2d")]).unwrap(),
+            Value::Null
+        );
+        assert_eq!(
+            call_fn(&Derive, &[json!("my_hnl_function")]).unwrap(),
+            Value::Null
+        );
+        assert!(call_fn(&Derive, &[json!(42)]).is_err());
+        assert!(call_fn(&Derive, &[]).is_err());
+    }
+
+    #[test]
+    fn batch_norm_backward_eval_mode() {
+        // input [1,2,1,2] = [[1,2],[3,4]]; eps = 0.
+        // c0: μ=0, σ²=1, γ=1 → x̂ = x; dx = g·1·1 = g.
+        // c1: μ=3, σ²=4, γ=2 → inv_std = 1/2; dx = g·2·1/2 = g.
+        let input = tensor(&[1, 2, 1, 2], &[1.0, 2.0, 3.0, 4.0]);
+        let grad = tensor(&[1, 2, 1, 2], &[0.5, 1.0, 1.5, 2.0]);
+        let v = call_fn(
+            &BatchNormBackward,
+            &[
+                input,
+                tensor(&[2], &[1.0, 2.0]), // gamma
+                tensor(&[2], &[0.0, 1.0]), // beta (present, unused)
+                tensor(&[2], &[0.0, 3.0]), // mean
+                tensor(&[2], &[1.0, 4.0]), // var
+                grad,
+                json!(0),
+            ],
+        )
+        .unwrap();
+        // dx = g elementwise (both channels' scales are 1 under this setup).
+        assert_eq!(v["input"], tensor(&[1, 2, 1, 2], &[0.5, 1.0, 1.5, 2.0]));
+        // dβ_c = Σ g over (n, hw): c0 → 1.5, c1 → 3.5.
+        assert_eq!(v["beta"], tensor(&[2], &[1.5, 3.5]));
+        // dγ_c = Σ g·x̂: c0 → 0.5·1 + 1·2 = 2.5; c1 → 1.5·0 + 2·0.5 = 1.0
+        // (x̂ = (x−3)/2 = {0, 0.5}).
+        assert_eq!(v["gamma"], tensor(&[2], &[2.5, 1.0]));
+    }
+
+    #[test]
+    fn batch_norm_backward_sums_over_batch() {
+        // N=2, C=1: Σ over both batch elements.
+        let input = tensor(&[2, 1, 1, 1], &[1.0, 3.0]);
+        let grad = tensor(&[2, 1, 1, 1], &[2.0, 4.0]);
+        let v = call_fn(
+            &BatchNormBackward,
+            &[
+                input,
+                tensor(&[1], &[1.0]), // gamma
+                tensor(&[1], &[0.0]), // beta
+                tensor(&[1], &[0.0]), // mean
+                tensor(&[1], &[1.0]), // var
+                grad,
+                json!(0),
+            ],
+        )
+        .unwrap();
+        assert_eq!(v["beta"], tensor(&[1], &[6.0]));
+        assert_eq!(v["gamma"], tensor(&[1], &[2.0 * 1.0 + 4.0 * 3.0]));
+        assert_eq!(v["input"], tensor(&[2, 1, 1, 1], &[2.0, 4.0]));
+    }
+
+    #[test]
+    fn batch_norm_backward_rejects_bad_args() {
+        let input = tensor(&[1, 2, 1, 2], &[1.0, 2.0, 3.0, 4.0]);
+        let good = |p: &[f64]| tensor(&[2], p);
+        let grad = tensor(&[1, 2, 1, 2], &[0.0; 4]);
+        // rank / param / grad-shape mismatches and arity.
+        assert!(
+            call_fn(
+                &BatchNormBackward,
+                &[
+                    tensor(&[4], &[0.0; 4]),
+                    good(&[1.0; 2]),
+                    good(&[0.0; 2]),
+                    good(&[0.0; 2]),
+                    good(&[1.0; 2]),
+                    grad.clone()
+                ]
+            )
+            .is_err()
+        );
+        assert!(
+            call_fn(
+                &BatchNormBackward,
+                &[
+                    input.clone(),
+                    good(&[1.0; 2]),
+                    good(&[0.0; 2]),
+                    good(&[0.0; 2]),
+                    good(&[1.0; 2]),
+                    tensor(&[4], &[0.0; 4])
+                ]
+            )
+            .is_err()
+        );
+        assert!(call_fn(&BatchNormBackward, &[input.clone()]).is_err());
+    }
+
     // ── registry ──────────────────────────────────────────────────────
+
+    #[test]
+    fn deriv_pairs_are_all_registered() {
+        let registry = tensor_op_registry();
+        for (forward, backward) in DERIV_PAIRS {
+            assert!(registry.contains(forward), "unregistered forward {forward}");
+            assert!(
+                registry.contains(backward),
+                "unregistered adjoint {backward}"
+            );
+        }
+    }
 
     #[test]
     fn registry_registers_every_declared_op() {

@@ -73,3 +73,11 @@ test_transpose := assert tensor.to_list(tensor.transpose(tensor.from_list([[1, 2
 test_concat_axis0 := assert tensor.to_list(tensor.concat([tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6]])], 0)) = [[1, 2], [3, 4], [5, 6]]
 
 test_concat_axis1 := assert tensor.to_list(tensor.concat([tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5], [6]])], 1)) = [[1, 2, 5], [3, 4, 6]]
+
+--- derive: the registered adjoint for batch_norm; unpaired names → null.
+test_derive := assert tensor.derive("batch_norm") = "tensor.batch_norm_backward"
+
+test_derive_unpaired := assert tensor.derive("tensor.conv2d") = null
+
+--- batch_norm_backward: eps 0, scales 1 → dx = g elementwise; dβ = Σ g.
+test_batch_norm_backward := assert tensor.to_list((tensor.batch_norm_backward(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([1, 2]), tensor.from_list([0, 1]), tensor.from_list([0, 3]), tensor.from_list([1, 4]), tensor.from_list([[[[0.5, 1]], [[1.5, 2]]]]), 0)).beta) = [1.5, 3.5]
