@@ -1,0 +1,29 @@
+[package]
+name = "handl-host-tensor"
+version = "0.1.0"
+edition = "2024"
+description = "Host-side tensor functions for handl runtimes — an n-d dense array (f64) behind the `tensor.*` op surface."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/handl-lang/host-tensor"
+
+[dependencies]
+# ADR-0128 §Resolution: platform + lib-ops come from the sibling checkouts for
+# local development (see the `[patch]` tables); CI resolves the git sources.
+handl-platform = { git = "https://github.com/handl-lang/platform", branch = "main" }
+handl-plugin-lib-handl = { git = "https://github.com/handl-lang/platform", branch = "main" }
+handl-lib-ops = { git = "https://github.com/handl-lang/lib-ops", branch = "main" }
+serde_json = "1"
+
+[dev-dependencies]
+handl-plugin-module = { git = "https://github.com/handl-lang/platform", branch = "main" }
+
+[patch."https://github.com/handl-lang/kernel"]
+handl-value = { path = "../kernel/crates/handl-value" }
+
+[patch."https://github.com/handl-lang/platform"]
+handl-platform = { path = "../platform/crates/platform" }
+handl-plugin-lib-handl = { path = "../platform/crates/plugin-lib-handl" }
+handl-plugin-module = { path = "../platform/crates/plugin-module" }
+
+[patch."https://github.com/handl-lang/lib-ops"]
+handl-lib-ops = { path = "../lib-ops" }

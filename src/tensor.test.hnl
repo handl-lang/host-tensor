@@ -1,0 +1,28 @@
+--- tensor -- spec tests for the host-function surface.
+---
+--- These exercise `tensor.*` through the module chain, so under `hnl test`
+--- in a repo that ships no host module they fail as `call_host: function
+--- 'tensor.<op>' not found` — host-dependent by construction, and not
+--- counted by the gate (see scripts/hnl-gate.sh). The executable
+--- verification is `cargo test` (src/ops.rs's suite + the
+--- HandlModule::with_ops dispatch test).
+
+from "./index" import * as tensor
+
+test_zeros_shape := assert tensor.shape(tensor.zeros([2, 3])) = [2, 3]
+
+test_zeros_data := assert tensor.to_list(tensor.zeros([3])) = [0, 0, 0]
+
+test_ones_data := assert tensor.to_list(tensor.ones([2, 2])) = [[1, 1], [1, 1]]
+
+test_from_list_shape := assert tensor.shape(tensor.from_list([[1, 2, 3], [4, 5, 6]])) = [2, 3]
+
+test_from_list_to_list_roundtrip := assert tensor.to_list(tensor.from_list([[1, 2], [3, 4]])) = [[1, 2], [3, 4]]
+
+test_add := assert tensor.to_list(tensor.add(tensor.ones([2]), tensor.ones([2]))) = [2, 2]
+
+test_add_rank2 := assert tensor.to_list(tensor.add(tensor.from_list([[1, 2]]), tensor.from_list([[3, 4]]))) = [[4, 6]]
+
+test_matmul_2x2 := assert tensor.to_list(tensor.matmul(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]]))) = [[19, 22], [43, 50]]
+
+test_matmul_rect := assert tensor.to_list(tensor.matmul(tensor.from_list([[1, 2, 3], [4, 5, 6]]), tensor.from_list([[7, 8], [9, 10], [11, 12]]))) = [[58, 64], [139, 154]]
