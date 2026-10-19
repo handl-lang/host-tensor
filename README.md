@@ -124,13 +124,25 @@ tensor.matmul(tensor.from_list([[1, 2]]), tensor.from_list([[3], [4]]))
 ## Layout
 
 ```text
-src/index.hnl        the interface (cap/op/handle declarations)
-src/ops.rs           the Rust atoms + tensor_op_registry
-src/tensor.test.hnl  .hnl spec tests (host-dependent under `hnl test`)
-pkg.hnl              { modules: ["tensor"] }
-.handl.toml          self-declared dep names for repo-local resolution
-ci.sh                bupha entry: hnl gate + cargo test
+src/index.hnl          the interface (cap/op/handle declarations)
+src/ops/mod.rs         TENSOR_OPS + tensor_op_registry + the interface drift guard
+src/ops/codec.rs       the wire codec + boundary ops (zeros/ones/from_list/to_list/shape)
+src/ops/elementwise.rs add/mul/sub/div (numpy broadcasting)
+src/ops/matmul.rs      matmul (rank-2/3, batch broadcast)
+src/ops/conv.rs        conv2d, max_pool (NCHW)
+src/ops/norm.rs        batch_norm, batch_norm_backward
+src/ops/shape_ops.rs   reshape, transpose, concat
+src/ops/derive.rs      derive + DERIV_PAIRS
+src/tensor.test.hnl    .hnl spec tests (host-dependent under `hnl test`)
+pkg.hnl                { modules: ["tensor"] }
+.handl.toml            self-declared dep names for repo-local resolution
+ci.sh                  bupha entry: hnl gate + cargo test
 ```
+
+The `src/ops/` file map mirrors `lib-tensor`'s spec files 1:1
+(`codec`/`elementwise`/`matmul`/`conv`/`norm`/`shape_ops`; `derive` splits
+out of `norm` since `DERIV_PAIRS` spans domains) — the same op lives in
+the same file on both sides of the pair.
 
 ## Gate
 
@@ -147,21 +159,22 @@ params)~~, ~~broadcasting `add`/`mul`/`sub`/`div`~~,
 ~~`reshape`/`transpose`/`concat`~~, ~~batched `matmul`~~,
 ~~`tensor.derive`~~ (landed as a registered-pairs table + one adjoint —
 `.hnl`-function autodiff is the deferred half; see the finding below),
-a real `Tensor` scalar in
-`value_types.yaml` + `TaggedValue::Tensor` (opaque `Rc` payload instead of
-the tagged-object encoding — see the finding below), and dtype promotion
-beyond `f64`.
+~~`TaggedValue::Tensor`~~ (landed — see the finding below), and dtype
+promotion beyond `f64`.
 
-**`TaggedValue::Tensor` is a kernel change, not a data change**
-(investigated for this slice; deferred). `value_types.yaml` is ADR-0078
-declarative spec data: `handl-kit-data-canonical` does not load it and
-`handl-language`'s `Language` has no `value_types` field — there is no
-`ValueTypeDef` fragment type to merge into, so an entry there would be
-inert. The runtime value representation is the hardcoded
-`TaggedValue` enum in `handl-value`; a real `Tensor` variant means a new
-enum case + eq/hash + the `TaggedValue`↔`Value` codec + every `match`
-site in the engines. The opaque-payload precedent already exists —
-`TaggedValue::Resource(Rc<ForeignResource>)` (ADR-0083 §2.2, pointer +
-finalizer) — and the `Function` boundary is `serde_json::Value`
-regardless, so the `__tensor__` tagged-object encoding stays correct and
-forward-compatible until that kernel slice lands.
+**`TaggedValue::Tensor` landed in `handl-value`, not in
+`value_types.yaml`** (the earlier deferral, resolved). The investigation
+had found `value_types.yaml` to be inert — ADR-0078 declarative spec data
+that `handl-kit-data-canonical` does not load and `Language` has no
+`value_types` field to merge — and the runtime value representation to be
+the hardcoded `TaggedValue` enum. The kernel slice landed on that second
+path: `TaggedValue::Tensor(Rc<TensorValue>)` in `handl-value` (opaque
+`Rc` payload, following the `TaggedValue::Resource` precedent of
+ADR-0083 §2.2), with decode/encode in the `TaggedValue`↔`Value` codec —
+`call_host` decodes the `{"__tensor__": …}` wire form at the boundary and
+engines carry it opaquely (`tests/engine_roundtrip.rs` pins the
+round-trip on tree-walk and bytecode). The wire encoding is unchanged —
+it stays the `Function`-boundary form, and engines without the variant
+still see a plain object. One asymmetry to note: inside an engine the
+variant carries non-finite `f64`s, but any `serde_json` crossing still
+serializes them as `null` (the codec's documented finite-only hole).

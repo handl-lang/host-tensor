@@ -4,7 +4,7 @@
 --- in a repo that ships no host module they fail as `call_host: function
 --- 'tensor.<op>' not found` — host-dependent by construction, and not
 --- counted by the gate (see scripts/hnl-gate.sh). The executable
---- verification is `cargo test` (src/ops.rs's suite + the
+--- verification is `cargo test` (src/ops/'s suite + the
 --- HandlModule::with_ops dispatch test).
 
 from "./index" import * as tensor

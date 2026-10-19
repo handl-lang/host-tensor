@@ -16,15 +16,16 @@
 --- — following the `{"__bytes__": ...}` tagged convention (ADR-0083 §2.1).
 --- `shape` is the extent per axis, `data` the flat row-major payload whose
 --- length is the product of `shape`, `dtype` the element type (only `f64`
---- for now). The tag keeps a tensor unambiguous next to user records while
---- staying a plain object to engines that have no `Tensor` scalar type —
---- promoting one in `value_types.yaml` later changes no wire shape.
+--- for now). The tag keeps a tensor unambiguous next to user records:
+--- engines with the kernel `TaggedValue::Tensor` decode it at the
+--- `call_host` boundary and carry it opaquely; engines without it see a
+--- plain object — the wire shape is the same either way.
 ---
 --- All 18 functions are FFI atoms: a tensor has no literal syntax and no
 --- eval-vocabulary constructor, so construction, projection, and algebra
 --- cannot be expressed as pure handl arrows. The `op`/`handle` declaration
 --- form (ADR-0077 Phase 2) declares the interface; the Rust `Function`
---- impls in `src/ops.rs` provide the logic and are registered in an
+--- impls in `src/ops/` provide the logic and are registered in an
 --- `OpRegistry` that dispatches each `op` to its native impl.
 ---
 --- `tensor.from_list(xs)` infers the shape from nested number arrays and
