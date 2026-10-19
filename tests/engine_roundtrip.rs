@@ -148,25 +148,22 @@ fn tree_walk_matmul_returns_tagged_tensor() {
     }
 }
 
-/// The tensor is opaque inside the engine: field access `t.__tensor__`
-/// must not see the wire object — it errors, and the diagnostic names the
-/// tagged variant (`type_tag(TaggedValue::Tensor) == "tensor"`). If the
-/// host's wire payload stayed a plain `Obj`, this would instead return the
-/// `{shape, data, dtype}` payload — so this failing is the proof of
-/// decode.
+/// The tagged-object view seam: `t.__tensor__` on an opaque
+/// `TaggedValue::Tensor` projects the canonical wire record — the same
+/// `{shape, data, dtype}` payload a `.hnl`-authored wire record carries.
 #[test]
-fn tree_walk_tensor_is_not_a_record() {
+fn tree_walk_tensor_projects_the_wire_view() {
     let rt = tree_walk_runtime();
-    let err = rt
+    let value = rt
         .run(&Source::new(&format!(
             "do {{ {TENSOR_BINDINGS} \
              t := tensor.zeros([2, 3]); \
              t.__tensor__ }}"
         )))
-        .expect_err("field access on a Tensor must fail, not project the wire payload");
-    assert!(
-        err.to_string().contains("tensor"),
-        "error should name the 'tensor' type tag: {err}"
+        .unwrap();
+    assert_eq!(
+        value,
+        json!({"shape": [2, 3], "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "dtype": "f64"})
     );
 }
 

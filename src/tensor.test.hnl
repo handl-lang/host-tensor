@@ -102,3 +102,17 @@ test_conv2d_backward_input := assert tensor.to_list((tensor.conv2d_backward(tens
 test_conv2d_backward_weight := assert tensor.to_list((tensor.conv2d_backward(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([[[[1]], [[2]]], [[[-1]], [[0]]]]), tensor.ones([1, 2, 1, 2]), tensor.zeros([2]))).bias) = [2, 2]
 
 test_derive_mul := assert tensor.derive("mul") = "tensor.mul_backward"
+
+--- max_pool_backward scatters the grad to each window's argmax.
+test_max_pool_backward := assert tensor.to_list((tensor.max_pool_backward(tensor.from_list([[[[1, 2], [3, 4]]]]), tensor.from_list([[[[7]]]]), 2)).input) = [[[[0, 0], [0, 7]]]]
+
+--- reshape_backward relabels the grad to the input's shape.
+test_reshape_backward := assert tensor.to_list((tensor.reshape_backward(tensor.zeros([2, 3]), [3, 2], tensor.from_list([[1, 2], [3, 4], [5, 6]]))).input) = [[1, 2, 3], [4, 5, 6]]
+
+--- transpose_backward transposes the grad back (self-inverse).
+test_transpose_backward := assert tensor.to_list((tensor.transpose_backward(tensor.zeros([2, 3]), 0, 1, tensor.from_list([[1, 4], [2, 5], [3, 6]]))).input) = [[1, 2, 3], [4, 5, 6]]
+
+--- concat_backward splits the grad at each input's extent.
+test_concat_backward := assert tensor.to_list((tensor.concat_backward([tensor.zeros([2, 1]), tensor.zeros([2, 1])], 0, tensor.from_list([[1], [2], [3], [4]])).xs)[1]) = [[3], [4]]
+
+test_derive_reshape := assert tensor.derive("reshape") = "tensor.reshape_backward"

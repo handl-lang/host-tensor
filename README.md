@@ -4,7 +4,7 @@ Host-side tensor functions for handl runtimes — a dense n-d `f64` array
 (row-major) behind the `tensor.*` op surface. Runtimes compose this
 component to give `.hnl` code tensor ops; catopt is the first consumer.
 
-The surface (24 FFI atoms, `src/index.hnl` is the single source of truth):
+The surface (28 FFI atoms, `src/index.hnl` is the single source of truth):
 
 | op | signature | semantics |
 |---|---|---|
@@ -68,8 +68,9 @@ rank-2 × rank-2 stays the plain `(m×k)·(k×n)` product.
 of the adjoint registered for `name` in the `DERIV_PAIRS` table
 (qualified or bare local name; `null` when no pair exists), and the
 returned name resolves through the same `ModuleRegistry` — so a `.hnl`
-optimization loop can dispatch it. Seven pairs are registered so far —
-`add`/`mul`/`sub`/`div`, `matmul`, `conv2d`, and `batch_norm`. The
+optimization loop can dispatch it. Eleven pairs are registered so far —
+`add`/`mul`/`sub`/`div`, `matmul`, `conv2d`, `max_pool`, `reshape`,
+`transpose`, `concat`, and `batch_norm`. The
 `*_backward` convention: the primal's required args, then the upstream
 gradient, then the primal's positional optionals; the result is the
 differentiable inputs' grads keyed by parameter name —
