@@ -41,7 +41,7 @@ use serde_json::json;
 /// The canonical language (data-driven kit assembly — the same `Language`
 /// the shipped toolchain runs).
 fn canonical_lang() -> Language {
-    handl_kit_data_canonical::assemble()
+    handl_kit_data_prelude::assemble()
         .expect("canonical kit assembles")
         .lang()
         .clone()
