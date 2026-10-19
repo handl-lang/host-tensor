@@ -119,7 +119,7 @@ fn registry_lookup_dispatches_derive_adjoint_chain() {
     assert_eq!(grads["beta"], tensor(&[2], &[1.5, 3.5]));
     // And an unpaired name maps to null.
     assert_eq!(
-        derive.call(&[json!("tensor.conv2d")], &mut ctx).unwrap(),
+        derive.call(&[json!("tensor.max_pool")], &mut ctx).unwrap(),
         Value::Null
     );
 }

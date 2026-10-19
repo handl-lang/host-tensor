@@ -81,3 +81,24 @@ test_derive_unpaired := assert tensor.derive("tensor.conv2d") = null
 
 --- batch_norm_backward: eps 0, scales 1 → dx = g elementwise; dβ = Σ g.
 test_batch_norm_backward := assert tensor.to_list((tensor.batch_norm_backward(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([1, 2]), tensor.from_list([0, 1]), tensor.from_list([0, 3]), tensor.from_list([1, 4]), tensor.from_list([[[[0.5, 1]], [[1.5, 2]]]]), 0)).beta) = [1.5, 3.5]
+
+--- backward ops: the *_backward convention is (primal args, grad_out) →
+--- grads keyed by operand name; broadcast dims sum back.
+test_add_backward := assert tensor.to_list((tensor.add_backward(tensor.ones([2, 3]), tensor.ones([3]), tensor.ones([2, 3]))).b) = [2, 2, 2]
+
+test_mul_backward := assert tensor.to_list((tensor.mul_backward(tensor.from_list([2, 3]), tensor.from_list([4, 5]), tensor.ones([2]))).a) = [4, 5]
+
+test_sub_backward := assert tensor.to_list((tensor.sub_backward(tensor.ones([2]), tensor.ones([2]), tensor.from_list([2, 4]))).b) = [-2, -4]
+
+test_div_backward := assert tensor.to_list((tensor.div_backward(tensor.from_list([8, 9]), tensor.from_list([2, 3]), tensor.ones([2]))).b) = [-2, -1]
+
+--- matmul_backward with g = I: da = bᵀ = [[5,7],[6,8]].
+test_matmul_backward := assert tensor.to_list((tensor.matmul_backward(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]]), tensor.from_list([[1, 0], [0, 1]]))).a) = [[5, 7], [6, 8]]
+
+--- conv2d_backward, 1x1 kernel, g all-ones: dx[ci] = Σ_co w[co,ci] →
+--- ch0 1+(−1)=0, ch1 2+0=2; dw[co,ci] = Σx = [4,6]; db = [2,2].
+test_conv2d_backward_input := assert tensor.to_list((tensor.conv2d_backward(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([[[[1]], [[2]]], [[[-1]], [[0]]]]), tensor.ones([1, 2, 1, 2]))).input) = [[[0, 0]], [[2, 2]]]
+
+test_conv2d_backward_weight := assert tensor.to_list((tensor.conv2d_backward(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([[[[1]], [[2]]], [[[-1]], [[0]]]]), tensor.ones([1, 2, 1, 2]), tensor.zeros([2]))).bias) = [2, 2]
+
+test_derive_mul := assert tensor.derive("mul") = "tensor.mul_backward"

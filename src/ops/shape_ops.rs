@@ -6,24 +6,12 @@ use serde_json::Value;
 
 use super::codec::{
     Tensor, decode_tensor, encode_tensor, require_extent, require_shape, require_tensor,
-    type_mismatch,
+    row_major_strides, type_mismatch,
 };
 
 // ---------------------------------------------------------------------------
 // Shape manipulation
 // ---------------------------------------------------------------------------
-
-/// Row-major strides of `shape` (the contiguous layout every tensor in
-/// this component uses).
-fn row_major_strides(shape: &[usize]) -> Vec<usize> {
-    let mut strides = vec![0usize; shape.len()];
-    let mut acc = 1usize;
-    for i in (0..shape.len()).rev() {
-        strides[i] = acc;
-        acc *= shape[i];
-    }
-    strides
-}
 
 /// The Rust handl for `op "tensor.reshape" : (Tensor * (List Int)) -> Tensor`.
 ///
@@ -66,43 +54,49 @@ impl Function for Transpose {
     fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
         handl_lib_ops::shared::require_arg_count(args, 3)?;
         let t = require_tensor(args, 0)?;
-        let rank = t.shape.len();
         let d0 = require_extent(&args[1])?;
         let d1 = require_extent(&args[2])?;
-        if d0 >= rank || d1 >= rank {
-            return Err(EvalError::Other(format!(
-                "tensor.transpose: dims ({d0}, {d1}) out of range for rank {rank} ({:?})",
-                t.shape
-            )));
-        }
-        // `perm[d]` = the input axis output axis `d` reads from.
-        let mut perm: Vec<usize> = (0..rank).collect();
-        perm.swap(d0, d1);
-        let out_shape: Vec<usize> = perm.iter().map(|&d| t.shape[d]).collect();
-        let in_strides = row_major_strides(&t.shape);
-        // Output odometer → input offset via the permuted strides.
-        let mut data = Vec::with_capacity(t.data.len());
-        let mut idx = vec![0usize; rank];
-        for _ in 0..t.data.len() {
-            let off: usize = idx
-                .iter()
-                .zip(&perm)
-                .map(|(&i, &d)| i * in_strides[d])
-                .sum();
-            data.push(t.data[off]);
-            for d in (0..rank).rev() {
-                idx[d] += 1;
-                if idx[d] < out_shape[d] {
-                    break;
-                }
-                idx[d] = 0;
-            }
-        }
-        Ok(encode_tensor(Tensor {
-            shape: out_shape,
-            data,
-        }))
+        Ok(encode_tensor(transpose_dims(&t, d0, d1)?))
     }
+}
+
+/// `t` with axes `d0`/`d1` swapped — the shared core of [`Transpose`] and
+/// `matmul_backward`'s per-batch inner transpose.
+pub(crate) fn transpose_dims(t: &Tensor, d0: usize, d1: usize) -> Result<Tensor, EvalError> {
+    let rank = t.shape.len();
+    if d0 >= rank || d1 >= rank {
+        return Err(EvalError::Other(format!(
+            "tensor.transpose: dims ({d0}, {d1}) out of range for rank {rank} ({:?})",
+            t.shape
+        )));
+    }
+    // `perm[d]` = the input axis output axis `d` reads from.
+    let mut perm: Vec<usize> = (0..rank).collect();
+    perm.swap(d0, d1);
+    let out_shape: Vec<usize> = perm.iter().map(|&d| t.shape[d]).collect();
+    let in_strides = row_major_strides(&t.shape);
+    // Output odometer → input offset via the permuted strides.
+    let mut data = Vec::with_capacity(t.data.len());
+    let mut idx = vec![0usize; rank];
+    for _ in 0..t.data.len() {
+        let off: usize = idx
+            .iter()
+            .zip(&perm)
+            .map(|(&i, &d)| i * in_strides[d])
+            .sum();
+        data.push(t.data[off]);
+        for d in (0..rank).rev() {
+            idx[d] += 1;
+            if idx[d] < out_shape[d] {
+                break;
+            }
+            idx[d] = 0;
+        }
+    }
+    Ok(Tensor {
+        shape: out_shape,
+        data,
+    })
 }
 
 /// The Rust handl for `op "tensor.concat" : (Array * Int) -> Tensor`.

@@ -93,7 +93,8 @@ const TENSOR_BINDINGS: &str = r#"tensor := {
     to_list: "tensor.to_list",
     shape: "tensor.shape",
     matmul: "tensor.matmul",
-    add: "tensor.add"
+    add: "tensor.add",
+    div: "tensor.div"
 };"#;
 
 /// `tensor.zeros([2, 3])` evaluated by the tree-walk engine returns a
@@ -220,4 +221,33 @@ fn tensor_value_reencodes_to_wire_form() {
             "{name}: TaggedValue::Tensor must re-encode to the wire form"
         );
     }
+}
+
+/// The documented wire hole, pinned end to end: `tensor.div` by zero
+/// produces `inf` elements, which have no `serde_json` representation —
+/// the host emits `null` in `data`, `TaggedValue::from` declines the
+/// malformed payload (falling back to a plain `Obj`), and feeding it
+/// back to a host op errors at decode instead of silently projecting.
+#[test]
+fn non_finite_elements_degrade_to_plain_object() {
+    let rt = tree_walk_runtime();
+    let value = rt
+        .run(&Source::new(&format!(
+            "do {{ {TENSOR_BINDINGS}              tensor.div(tensor.from_list([[1, 2]]), tensor.zeros([2])) }}"
+        )))
+        .unwrap();
+    assert_eq!(
+        value,
+        json!({"__tensor__": {"shape": [1, 2], "data": [null, null], "dtype": "f64"}})
+    );
+
+    let err = rt
+        .run(&Source::new(&format!(
+            "do {{ {TENSOR_BINDINGS}              tensor.to_list(tensor.div(tensor.from_list([[1]]), tensor.zeros([1]))) }}"
+        )))
+        .expect_err("to_list on a degraded tensor must fail at decode");
+    assert!(
+        err.to_string().contains("data: numbers"),
+        "decode error should name the malformed field: {err}"
+    );
 }

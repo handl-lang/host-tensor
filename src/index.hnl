@@ -1,11 +1,11 @@
 --- tensor -- host-side dense n-d tensor functions (f64, row-major).
 ---
---- Single source of truth for the `tensor` host-function surface: 18 ops
+--- Single source of truth for the `tensor` host-function surface: 24 ops
 --- covering construction (`zeros`, `ones`, `from_list`), projection
 --- (`shape`, `to_list`), algebra (`add`/`mul`/`sub`/`div`, `matmul`,
 --- `conv2d`, `max_pool`, `batch_norm`), shape manipulation (`reshape`,
---- `transpose`, `concat`), and derivatives (`derive`,
---- `batch_norm_backward`). A *runtime* (catopt
+--- `transpose`, `concat`), and derivatives (`derive` + the seven
+--- `*_backward` adjoints it resolves). A *runtime* (catopt
 --- is the first consumer) composes this package by building a `HandlModule`
 --- with the Rust `OpRegistry` this repo ships (`tensor_op_registry`), so
 --- the `tensor.*` string callees resolve to native impls; nothing in the
@@ -21,7 +21,7 @@
 --- `call_host` boundary and carry it opaquely; engines without it see a
 --- plain object — the wire shape is the same either way.
 ---
---- All 18 functions are FFI atoms: a tensor has no literal syntax and no
+--- All 24 functions are FFI atoms: a tensor has no literal syntax and no
 --- eval-vocabulary constructor, so construction, projection, and algebra
 --- cannot be expressed as pure handl arrows. The `op`/`handle` declaration
 --- form (ADR-0077 Phase 2) declares the interface; the Rust `Function`
@@ -61,12 +61,16 @@
 --- registered for `name` (qualified or bare local), or `null` when no
 --- pair exists — a *registered-pairs* table, not autodiff: a `.hnl`
 --- function name gets `null` since a host `Function` sees only
---- evaluated argument values. The only pair so far maps
---- `tensor.batch_norm` to `tensor.batch_norm_backward(input, gamma,
---- beta, mean, var, grad_out, eps?)` — the primal signature plus the
---- upstream gradient — which returns the differentiable inputs' grads
---- `{"input": dx, "gamma": dγ, "beta": dβ}` (mean/var are statistical
---- in eval mode and carry none).
+--- evaluated argument values. Seven pairs so far: the elementwise four
+--- and `matmul` map to `(a, b, grad_out) -> {"a", "b"}` adjoints that
+--- sum broadcast dims back to each operand's shape; `conv2d` maps to
+--- `conv2d_backward(input, weight, grad_out, bias?, stride?, padding?,
+--- groups?) -> {"input", "weight", "bias"?}`; and `batch_norm` maps to
+--- `batch_norm_backward(input, gamma, beta, mean, var, grad_out, eps?)`
+--- which returns the differentiable inputs' grads `{"input": dx,
+--- "gamma": dγ, "beta": dβ}` (mean/var are statistical in eval mode
+--- and carry none). The `*_backward` convention: required primal args,
+--- then the upstream gradient, then the primal's positional optionals.
 ---
 --- ## Capability declarations (ADR-0077 Phase 4)
 --- tensor.zeros -- a tensor of `shape` filled with 0.0.
@@ -75,11 +79,17 @@
 --- tensor.to_list -- the nested number arrays for tensor `t` (inverse of from_list).
 --- tensor.shape -- the extent-per-axis list of tensor `t`.
 --- tensor.add -- elementwise `a + b` (numpy-style broadcasting).
+--- tensor.add_backward -- adjoint of `add`: `(a, b, grad_out) -> {a, b}` (broadcast grads sum back).
 --- tensor.mul -- elementwise `a * b` (numpy-style broadcasting).
+--- tensor.mul_backward -- adjoint of `mul`: `(a, b, grad_out) -> {a, b}`.
 --- tensor.sub -- elementwise `a - b` (numpy-style broadcasting).
+--- tensor.sub_backward -- adjoint of `sub`: `(a, b, grad_out) -> {a, b}`.
 --- tensor.div -- elementwise `a / b` (numpy-style broadcasting).
+--- tensor.div_backward -- adjoint of `div`: `(a, b, grad_out) -> {a, b}`.
 --- tensor.matmul -- `(m×k)·(k×n)` dense matrix product; rank-3 sides batch over `B` (batch broadcasts).
+--- tensor.matmul_backward -- adjoint of `matmul`: `(a, b, grad_out) -> {a, b}` (`g·bᵀ`, `aᵀ·g`).
 --- tensor.conv2d -- NCHW conv2d `(input, weight, bias?, stride?, padding?, groups?)`.
+--- tensor.conv2d_backward -- adjoint of `conv2d`: `(input, weight, grad_out, bias?, stride?, padding?, groups?) -> {input, weight, bias?}`.
 --- tensor.max_pool -- NCHW max pooling `(input, kernel, stride?)`; stride defaults to kernel.
 --- tensor.batch_norm -- eval-mode batch norm `(input, gamma, beta, mean, var, eps?)`.
 --- tensor.reshape -- `t` re-labeled under `shape` (product must equal the element count).
@@ -93,11 +103,17 @@ cap "tensor.from_list"
 cap "tensor.to_list"
 cap "tensor.shape"
 cap "tensor.add"
+cap "tensor.add_backward"
 cap "tensor.mul"
+cap "tensor.mul_backward"
 cap "tensor.sub"
+cap "tensor.sub_backward"
 cap "tensor.div"
+cap "tensor.div_backward"
 cap "tensor.matmul"
+cap "tensor.matmul_backward"
 cap "tensor.conv2d"
+cap "tensor.conv2d_backward"
 cap "tensor.max_pool"
 cap "tensor.batch_norm"
 cap "tensor.reshape"
@@ -117,17 +133,39 @@ op "tensor.shape" : Tensor -> (List Int)
   guarantee: True
 op "tensor.add" : (Tensor * Tensor) -> Tensor
   guarantee: True
+--- add_backward(a, b, grad_out) -> {a: da, b: db}, each unbroadcast to
+--- the operand's shape.
+op "tensor.add_backward" : (Tensor * Tensor * Tensor) -> Value
+  guarantee: True
 op "tensor.mul" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- mul_backward(a, b, grad_out): da = g·b, db = g·a, unbroadcast.
+op "tensor.mul_backward" : (Tensor * Tensor * Tensor) -> Value
   guarantee: True
 op "tensor.sub" : (Tensor * Tensor) -> Tensor
   guarantee: True
+--- sub_backward(a, b, grad_out): da = g, db = −g, unbroadcast.
+op "tensor.sub_backward" : (Tensor * Tensor * Tensor) -> Value
+  guarantee: True
 op "tensor.div" : (Tensor * Tensor) -> Tensor
   guarantee: True
+--- div_backward(a, b, grad_out): da = g/b, db = −g·a/b², unbroadcast.
+op "tensor.div_backward" : (Tensor * Tensor * Tensor) -> Value
+  guarantee: True
 op "tensor.matmul" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- matmul_backward(a, b, grad_out): da = g·bᵀ, db = aᵀ·g per batch,
+--- unbroadcast over `B` to each operand's shape.
+op "tensor.matmul_backward" : (Tensor * Tensor * Tensor) -> Value
   guarantee: True
 --- conv2d(input, weight, bias?, stride?, padding?, groups?) — variadic;
 --- `null` at an optional position selects the default (see the header).
 op "tensor.conv2d" : Value... -> Tensor
+  guarantee: True
+--- conv2d_backward(input, weight, grad_out, bias?, stride?, padding?,
+--- groups?) — required primal args, then grad_out, then the primal's
+--- optionals in order; returns {input, weight, bias?}.
+op "tensor.conv2d_backward" : Value... -> Value
   guarantee: True
 --- max_pool(input, kernel, stride?) — variadic; `null` `stride` selects
 --- the kernel as the stride. Floor mode: trailing partial windows drop.
@@ -155,11 +193,17 @@ handle "tensor.from_list" with rust_tensor_from_list
 handle "tensor.to_list" with rust_tensor_to_list
 handle "tensor.shape" with rust_tensor_shape
 handle "tensor.add" with rust_tensor_add
+handle "tensor.add_backward" with rust_tensor_add_backward
 handle "tensor.mul" with rust_tensor_mul
+handle "tensor.mul_backward" with rust_tensor_mul_backward
 handle "tensor.sub" with rust_tensor_sub
+handle "tensor.sub_backward" with rust_tensor_sub_backward
 handle "tensor.div" with rust_tensor_div
+handle "tensor.div_backward" with rust_tensor_div_backward
 handle "tensor.matmul" with rust_tensor_matmul
+handle "tensor.matmul_backward" with rust_tensor_matmul_backward
 handle "tensor.conv2d" with rust_tensor_conv2d
+handle "tensor.conv2d_backward" with rust_tensor_conv2d_backward
 handle "tensor.max_pool" with rust_tensor_max_pool
 handle "tensor.batch_norm" with rust_tensor_batch_norm
 handle "tensor.reshape" with rust_tensor_reshape
@@ -179,16 +223,22 @@ export tensor := {
   to_list: "tensor.to_list",
   shape: "tensor.shape",
   add: "tensor.add",
+  add_backward: "tensor.add_backward",
   mul: "tensor.mul",
+  mul_backward: "tensor.mul_backward",
   sub: "tensor.sub",
+  sub_backward: "tensor.sub_backward",
   div: "tensor.div",
+  div_backward: "tensor.div_backward",
   matmul: "tensor.matmul",
+  matmul_backward: "tensor.matmul_backward",
   conv2d: "tensor.conv2d",
+  conv2d_backward: "tensor.conv2d_backward",
   max_pool: "tensor.max_pool",
   batch_norm: "tensor.batch_norm",
   reshape: "tensor.reshape",
   transpose: "tensor.transpose",
   concat: "tensor.concat",
   batch_norm_backward: "tensor.batch_norm_backward",
-  derive: "tensor.derive"
+    derive: "tensor.derive"
 }

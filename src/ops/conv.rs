@@ -2,7 +2,7 @@
 //! lib-tensor's `conv.hnl`.
 
 use handl_platform::{EvalContext, EvalError, Function};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::codec::{
     Tensor, encode_tensor, has_opt_arg, opt_extent_pair, opt_positive_int, opt_tensor,
@@ -229,6 +229,160 @@ impl Function for MaxPool {
         }))
     }
 }
+/// The Rust handl for `op "tensor.conv2d_backward" : Value... -> Value`.
+///
+/// The adjoint [`DERIV_PAIRS`](crate::ops::DERIV_PAIRS) registers for
+/// `tensor.conv2d` — `conv2d_backward(input, weight, grad_out, bias?,
+/// stride?, padding?, groups?)`: the required primal args, then the
+/// upstream gradient (the primal's `[N, C_out, H_out, W_out]` output
+/// shape — checked), then the primal's positional optionals in the same
+/// order. Returns `{"input": dx, "weight": dw}` plus `"bias": db` (the
+/// per-channel sum of `grad_out`) when a `bias` argument is present.
+/// `dx` is the transposed convolution and `dw` the input–gradient
+/// cross-correlation — naive `f64` loops like `Conv2d`.
+#[derive(Debug, Clone, Copy)]
+pub struct Conv2dBackward;
+impl Function for Conv2dBackward {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 3, 7, "tensor.conv2d_backward")?;
+        let input = require_tensor(args, 0)?;
+        let weight = require_tensor(args, 1)?;
+        let grad = require_tensor(args, 2)?;
+        let bias = opt_tensor(args, 3)?;
+        let [s_h, s_w] = opt_extent_pair(args, 4, [1, 1], "tensor.conv2d_backward: stride")?;
+        let [p_h, p_w] = opt_extent_pair(args, 5, [0, 0], "tensor.conv2d_backward: padding")?;
+        let groups = opt_positive_int(args, 6, 1, "tensor.conv2d_backward: groups")?;
+        if s_h == 0 || s_w == 0 {
+            return Err(EvalError::Other(format!(
+                "tensor.conv2d_backward: stride must be positive, got [{s_h}, {s_w}]"
+            )));
+        }
+        if input.shape.len() != 4 || weight.shape.len() != 4 || grad.shape.len() != 4 {
+            return Err(EvalError::Other(format!(
+                "tensor.conv2d_backward: expected rank-4 input, weight, and grad_out, \
+                 got ranks {}, {}, and {}",
+                input.shape.len(),
+                weight.shape.len(),
+                grad.shape.len()
+            )));
+        }
+        let [n, c_in, h, w] = [
+            input.shape[0],
+            input.shape[1],
+            input.shape[2],
+            input.shape[3],
+        ];
+        let [c_out, c_in_w, k_h, k_w] = [
+            weight.shape[0],
+            weight.shape[1],
+            weight.shape[2],
+            weight.shape[3],
+        ];
+        if c_in % groups != 0 || c_out % groups != 0 {
+            return Err(EvalError::Other(format!(
+                "tensor.conv2d_backward: groups {groups} must divide both C_in {c_in} and C_out {c_out}"
+            )));
+        }
+        let c_in_g = c_in / groups;
+        let c_out_g = c_out / groups;
+        if c_in_w != c_in_g {
+            return Err(EvalError::Other(format!(
+                "tensor.conv2d_backward: weight channels {c_in_w} != C_in/groups {c_in_g} \
+                 (input [N, {c_in}, {h}, {w}], weight [{c_out}, {c_in_w}, {k_h}, {k_w}], groups {groups})"
+            )));
+        }
+        if let Some(b) = &bias {
+            if b.shape != [c_out] {
+                return Err(EvalError::Other(format!(
+                    "tensor.conv2d_backward: bias shape {:?} != [{c_out}]",
+                    b.shape
+                )));
+            }
+        }
+        let Some(h_out_num) = (h + 2 * p_h).checked_sub(k_h) else {
+            return Err(EvalError::Other(format!(
+                "tensor.conv2d_backward: kernel height {k_h} exceeds padded input height {}",
+                h + 2 * p_h
+            )));
+        };
+        let Some(w_out_num) = (w + 2 * p_w).checked_sub(k_w) else {
+            return Err(EvalError::Other(format!(
+                "tensor.conv2d_backward: kernel width {k_w} exceeds padded input width {}",
+                w + 2 * p_w
+            )));
+        };
+        let h_out = h_out_num / s_h + 1;
+        let w_out = w_out_num / s_w + 1;
+        if grad.shape != [n, c_out, h_out, w_out] {
+            return Err(EvalError::Other(format!(
+                "tensor.conv2d_backward: grad_out shape {:?} != conv2d output {:?}",
+                grad.shape,
+                [n, c_out, h_out, w_out]
+            )));
+        }
+        let mut dx = vec![0.0; n * c_in * h * w];
+        let mut dw = vec![0.0; c_out * c_in_g * k_h * k_w];
+        let mut db = vec![0.0; c_out];
+        for bn in 0..n {
+            for g in 0..groups {
+                for oc in 0..c_out_g {
+                    let co = g * c_out_g + oc;
+                    for oy in 0..h_out {
+                        for ox in 0..w_out {
+                            let gv = grad.data[((bn * c_out + co) * h_out + oy) * w_out + ox];
+                            db[co] += gv;
+                            for ic in 0..c_in_g {
+                                let ci = g * c_in_g + ic;
+                                for ky in 0..k_h {
+                                    // Same window arithmetic as the
+                                    // primal; out-of-range is the
+                                    // zero padding and contributes
+                                    // nothing to either gradient.
+                                    let iy = oy * s_h + ky;
+                                    if iy < p_h {
+                                        continue;
+                                    }
+                                    let iy = iy - p_h;
+                                    if iy >= h {
+                                        continue;
+                                    }
+                                    for kx in 0..k_w {
+                                        let ix = ox * s_w + kx;
+                                        if ix < p_w {
+                                            continue;
+                                        }
+                                        let ix = ix - p_w;
+                                        if ix >= w {
+                                            continue;
+                                        }
+                                        let xv =
+                                            input.data[((bn * c_in + ci) * h + iy) * w + ix];
+                                        let wv = weight.data
+                                            [((co * c_in_g + ic) * k_h + ky) * k_w + kx];
+                                        dx[((bn * c_in + ci) * h + iy) * w + ix] += gv * wv;
+                                        dw[((co * c_in_g + ic) * k_h + ky) * k_w + kx] += gv * xv;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let mut out = json!({
+            "input": encode_tensor(Tensor { shape: input.shape, data: dx }),
+            "weight": encode_tensor(Tensor { shape: weight.shape, data: dw }),
+        });
+        if bias.is_some() {
+            out["bias"] = encode_tensor(Tensor {
+                shape: vec![c_out],
+                data: db,
+            });
+        }
+        Ok(out)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -380,6 +534,105 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    // ── conv2d_backward ───────────────────────────────────────────────
+
+    #[test]
+    fn conv2d_backward_1x1() {
+        // input [1,2,1,2] = ch0 [1,2], ch1 [3,4]; weight [2,2,1,1] =
+        // co0 [1,2], co1 [-1,0]; grad all-ones [1,2,1,2].
+        // dx[ci] = Σ_co g·w[co,ci] → ch0: 1 + (−1) = 0, ch1: 2 + 0 = 2.
+        // dw[co,ci] = Σ x[ci]·g = 3, 7 for both co; db = Σ g = 2 per co.
+        let input = tensor(&[1, 2, 1, 2], &[1.0, 2.0, 3.0, 4.0]);
+        let weight = tensor(&[2, 2, 1, 1], &[1.0, 2.0, -1.0, 0.0]);
+        let grad = tensor(&[1, 2, 1, 2], &[1.0; 4]);
+        let v = call_fn(
+            &Conv2dBackward,
+            &[input.clone(), weight.clone(), grad.clone()],
+        )
+        .unwrap();
+        assert_eq!(v["input"], tensor(&[1, 2, 1, 2], &[0.0, 0.0, 2.0, 2.0]));
+        assert_eq!(v["weight"], tensor(&[2, 2, 1, 1], &[3.0, 7.0, 3.0, 7.0]));
+        assert!(v["bias"].is_null(), "no bias arg → no bias key");
+
+        // With bias present the db key appears.
+        let v = call_fn(
+            &Conv2dBackward,
+            &[input, weight, grad, tensor(&[2], &[0.0, 0.0])],
+        )
+        .unwrap();
+        assert_eq!(v["bias"], tensor(&[2], &[2.0, 2.0]));
+    }
+
+    #[test]
+    fn conv2d_backward_3x3_padding_scatter() {
+        // input [1,1,2,2] = 1..4; all-ones 3x3 kernel, pad 1, stride 1:
+        // every output sums all four cells (as the forward test showed),
+        // so with grad all-ones each input cell is covered by all four
+        // output windows → dx = [4; 4], and dw[ky,kx] = Σ over the
+        // windows where tap (ky,kx) lands on a real cell — corners see
+        // one cell ([1],[4]), edges two, center all four (10).
+        let input = tensor(&[1, 1, 2, 2], &[1.0, 2.0, 3.0, 4.0]);
+        let weight = tensor(&[1, 1, 3, 3], &[1.0; 9]);
+        let grad = tensor(&[1, 1, 2, 2], &[1.0; 4]);
+        let v = call_fn(
+            &Conv2dBackward,
+            &[input, weight, grad, Value::Null, Value::Null, json!(1)],
+        )
+        .unwrap();
+        assert_eq!(v["input"], tensor(&[1, 1, 2, 2], &[4.0; 4]));
+        assert_eq!(
+            v["weight"],
+            tensor(&[1, 1, 3, 3], &[1.0, 3.0, 2.0, 4.0, 10.0, 6.0, 3.0, 7.0, 4.0])
+        );
+    }
+
+    #[test]
+    fn conv2d_backward_rejects_bad_args() {
+        let input = tensor(&[1, 1, 2, 2], &[1.0, 2.0, 3.0, 4.0]);
+        let weight = tensor(&[1, 1, 1, 1], &[1.0]);
+        let grad = tensor(&[1, 1, 2, 2], &[1.0; 4]);
+        // grad_out shape must be the conv output, not the input.
+        assert!(
+            call_fn(
+                &Conv2dBackward,
+                &[input.clone(), weight.clone(), tensor(&[1, 1, 2, 3], &[0.0; 6])]
+            )
+            .is_err()
+        );
+        // non-rank-4 grad.
+        assert!(
+            call_fn(
+                &Conv2dBackward,
+                &[input.clone(), weight.clone(), tensor(&[4], &[0.0; 4])]
+            )
+            .is_err()
+        );
+        // stride 0 / groups not dividing / arity.
+        assert!(
+            call_fn(
+                &Conv2dBackward,
+                &[input.clone(), weight.clone(), grad.clone(), Value::Null, json!(0)]
+            )
+            .is_err()
+        );
+        assert!(
+            call_fn(
+                &Conv2dBackward,
+                &[
+                    input.clone(),
+                    weight.clone(),
+                    grad.clone(),
+                    Value::Null,
+                    Value::Null,
+                    Value::Null,
+                    json!(2)
+                ]
+            )
+            .is_err()
+        );
+        assert!(call_fn(&Conv2dBackward, &[input, weight]).is_err());
     }
 
     // ── max_pool ──────────────────────────────────────────────────────

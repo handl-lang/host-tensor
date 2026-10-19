@@ -13,7 +13,15 @@ use super::codec::type_mismatch;
 /// exists in [`tensor_op_registry`], so `derive`'s result always
 /// resolves through `ModuleLookup::lookup` on the same module — a
 /// `.hnl` optimization loop can call the returned name sight unseen.
-pub const DERIV_PAIRS: &[(&str, &str)] = &[("tensor.batch_norm", "tensor.batch_norm_backward")];
+pub const DERIV_PAIRS: &[(&str, &str)] = &[
+    ("tensor.add", "tensor.add_backward"),
+    ("tensor.mul", "tensor.mul_backward"),
+    ("tensor.sub", "tensor.sub_backward"),
+    ("tensor.div", "tensor.div_backward"),
+    ("tensor.matmul", "tensor.matmul_backward"),
+    ("tensor.conv2d", "tensor.conv2d_backward"),
+    ("tensor.batch_norm", "tensor.batch_norm_backward"),
+];
 
 /// The Rust handl for `op "tensor.derive" : String -> Value`.
 ///
@@ -75,7 +83,7 @@ mod tests {
     #[test]
     fn derive_returns_null_for_unpaired_and_rejects_non_string() {
         assert_eq!(
-            call_fn(&Derive, &[json!("tensor.conv2d")]).unwrap(),
+            call_fn(&Derive, &[json!("tensor.max_pool")]).unwrap(),
             Value::Null
         );
         assert_eq!(

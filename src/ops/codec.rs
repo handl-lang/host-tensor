@@ -136,6 +136,18 @@ pub(crate) fn require_shape(args: &[Value], pos: usize) -> Result<Vec<usize>, Ev
     arr.iter().map(require_extent).collect()
 }
 
+/// Row-major strides of `shape` (the contiguous layout every tensor in
+/// this component uses).
+pub(crate) fn row_major_strides(shape: &[usize]) -> Vec<usize> {
+    let mut strides = vec![0usize; shape.len()];
+    let mut acc = 1usize;
+    for i in (0..shape.len()).rev() {
+        strides[i] = acc;
+        acc *= shape[i];
+    }
+    strides
+}
+
 // ---------------------------------------------------------------------------
 // Optional-argument decoding (conv2d / batch_norm)
 //

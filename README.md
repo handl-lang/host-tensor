@@ -4,7 +4,7 @@ Host-side tensor functions for handl runtimes — a dense n-d `f64` array
 (row-major) behind the `tensor.*` op surface. Runtimes compose this
 component to give `.hnl` code tensor ops; catopt is the first consumer.
 
-The surface (18 FFI atoms, `src/index.hnl` is the single source of truth):
+The surface (24 FFI atoms, `src/index.hnl` is the single source of truth):
 
 | op | signature | semantics |
 |---|---|---|
@@ -14,11 +14,17 @@ The surface (18 FFI atoms, `src/index.hnl` is the single source of truth):
 | `tensor.to_list` | `Tensor -> Array` | tensor → nested number arrays |
 | `tensor.shape` | `Tensor -> (List Int)` | extent per axis |
 | `tensor.add` | `(Tensor * Tensor) -> Tensor` | elementwise `a + b`, numpy broadcasting |
+| `tensor.add_backward` | `(Tensor * Tensor * Tensor) -> Value` | adjoint of `add`: `(a, b, grad_out) -> {a, b}` — grads unbroadcast |
 | `tensor.mul` | `(Tensor * Tensor) -> Tensor` | elementwise `a * b`, numpy broadcasting |
+| `tensor.mul_backward` | `(Tensor * Tensor * Tensor) -> Value` | adjoint of `mul`: `da = g·b`, `db = g·a` |
 | `tensor.sub` | `(Tensor * Tensor) -> Tensor` | elementwise `a − b`, numpy broadcasting |
+| `tensor.sub_backward` | `(Tensor * Tensor * Tensor) -> Value` | adjoint of `sub`: `da = g`, `db = −g` |
 | `tensor.div` | `(Tensor * Tensor) -> Tensor` | elementwise `a / b`, numpy broadcasting |
+| `tensor.div_backward` | `(Tensor * Tensor * Tensor) -> Value` | adjoint of `div`: `da = g/b`, `db = −g·a/b²` |
 | `tensor.matmul` | `(Tensor * Tensor) -> Tensor` | `(m×k)·(k×n)`; rank-3 batches over `B` (broadcast), naive loop |
+| `tensor.matmul_backward` | `(Tensor * Tensor * Tensor) -> Value` | adjoint of `matmul`: `da = g·bᵀ`, `db = aᵀ·g`, unbroadcast over `B` |
 | `tensor.conv2d` | `Value... -> Tensor` | NCHW cross-correlation `(input, weight, bias?, stride?, padding?, groups?)` |
+| `tensor.conv2d_backward` | `Value... -> Value` | adjoint of `conv2d`: `(input, weight, grad_out, bias?, stride?, padding?, groups?) -> {input, weight, bias?}` |
 | `tensor.max_pool` | `Value... -> Tensor` | NCHW max pooling `(input, kernel, stride?)`; stride defaults to kernel |
 | `tensor.batch_norm` | `Value... -> Tensor` | eval-mode per-channel affine `(input, gamma, beta, mean, var, eps?)` |
 | `tensor.reshape` | `(Tensor * (List Int)) -> Tensor` | re-label under `shape` (product must match) |
@@ -62,12 +68,18 @@ rank-2 × rank-2 stays the plain `(m×k)·(k×n)` product.
 of the adjoint registered for `name` in the `DERIV_PAIRS` table
 (qualified or bare local name; `null` when no pair exists), and the
 returned name resolves through the same `ModuleRegistry` — so a `.hnl`
-optimization loop can dispatch it. Adjoint signatures mirror the primal
-plus the upstream gradient and return the differentiable inputs' grads
-keyed by parameter name: `batch_norm_backward(input, gamma, beta,
-mean, var, grad_out, eps?)` → `{"input": dx, "gamma": dγ, "beta": dβ}`
-(`mean`/`var` are statistical in eval mode and carry no grad). The only
-pair so far is `tensor.batch_norm → tensor.batch_norm_backward`.
+optimization loop can dispatch it. Seven pairs are registered so far —
+`add`/`mul`/`sub`/`div`, `matmul`, `conv2d`, and `batch_norm`. The
+`*_backward` convention: the primal's required args, then the upstream
+gradient, then the primal's positional optionals; the result is the
+differentiable inputs' grads keyed by parameter name —
+`add_backward(a, b, g) → {"a", "b"}` (broadcast dims sum back to each
+operand's shape), `matmul_backward(a, b, g) → {"a": g·bᵀ, "b": aᵀ·g}`,
+`conv2d_backward(input, weight, g, bias?, stride?, padding?, groups?)
+→ {"input", "weight", "bias"?}` (`db` only when `bias` was given), and
+`batch_norm_backward(input, gamma, beta, mean, var, g, eps?)` →
+`{"input": dx, "gamma": dγ, "beta": dβ}` (`mean`/`var` are statistical
+in eval mode and carry no grad).
 
 **`tensor.derive` is a registered-pairs table, not autodiff**
 (investigated this slice). What a true `derive` would take differs by
@@ -157,10 +169,22 @@ Deliberately out of scope so far — the composition seam is the
 point, not BLAS: ~~`tensor.max_pool` and friends (NCHW layout
 params)~~, ~~broadcasting `add`/`mul`/`sub`/`div`~~,
 ~~`reshape`/`transpose`/`concat`~~, ~~batched `matmul`~~,
-~~`tensor.derive`~~ (landed as a registered-pairs table + one adjoint —
+~~`tensor.derive`~~ (landed as a registered-pairs table + seven adjoints —
 `.hnl`-function autodiff is the deferred half; see the finding below),
 ~~`TaggedValue::Tensor`~~ (landed — see the finding below), and dtype
 promotion beyond `f64`.
+
+**dtype promotion is a kernel-first change, then a per-op lattice.**
+The wire field exists (`"dtype": "f64"`; decode accepts only `f64`,
+absent defaults to it), so the wire shape needs nothing. The real work
+is two layers: `handl-value`'s `TensorValue` is `Vec<f64>` — a second
+dtype means an enum payload + codec there (a kernel slice again, same
+shape the `Tensor` variant took); then here `Tensor.data: Vec<f64>`
+becomes an enum (`F64(Vec<f64>)`, `I64(Vec<i64>)`, …) and every op picks
+a rule per pair — numpy-style promotion, or same-dtype-only with an
+error on mixing (simpler, and what this component should probably do:
+promotion lattices are where the bugs live). The odometer/index code is
+dtype-agnostic; only the element type and the `f` closures change.
 
 **`TaggedValue::Tensor` landed in `handl-value`, not in
 `value_types.yaml`** (the earlier deferral, resolved). The investigation
