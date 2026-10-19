@@ -20,6 +20,10 @@ pub const DERIV_PAIRS: &[(&str, &str)] = &[
     ("tensor.div", "tensor.div_backward"),
     ("tensor.matmul", "tensor.matmul_backward"),
     ("tensor.conv2d", "tensor.conv2d_backward"),
+    ("tensor.max_pool", "tensor.max_pool_backward"),
+    ("tensor.reshape", "tensor.reshape_backward"),
+    ("tensor.transpose", "tensor.transpose_backward"),
+    ("tensor.concat", "tensor.concat_backward"),
     ("tensor.batch_norm", "tensor.batch_norm_backward"),
 ];
 
@@ -83,7 +87,7 @@ mod tests {
     #[test]
     fn derive_returns_null_for_unpaired_and_rejects_non_string() {
         assert_eq!(
-            call_fn(&Derive, &[json!("tensor.max_pool")]).unwrap(),
+            call_fn(&Derive, &[json!("tensor.zeros")]).unwrap(),
             Value::Null
         );
         assert_eq!(

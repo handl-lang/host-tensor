@@ -1,6 +1,6 @@
 --- tensor -- host-side dense n-d tensor functions (f64, row-major).
 ---
---- Single source of truth for the `tensor` host-function surface: 24 ops
+--- Single source of truth for the `tensor` host-function surface: 28 ops
 --- covering construction (`zeros`, `ones`, `from_list`), projection
 --- (`shape`, `to_list`), algebra (`add`/`mul`/`sub`/`div`, `matmul`,
 --- `conv2d`, `max_pool`, `batch_norm`), shape manipulation (`reshape`,
@@ -21,7 +21,7 @@
 --- `call_host` boundary and carry it opaquely; engines without it see a
 --- plain object — the wire shape is the same either way.
 ---
---- All 24 functions are FFI atoms: a tensor has no literal syntax and no
+--- All 28 functions are FFI atoms: a tensor has no literal syntax and no
 --- eval-vocabulary constructor, so construction, projection, and algebra
 --- cannot be expressed as pure handl arrows. The `op`/`handle` declaration
 --- form (ADR-0077 Phase 2) declares the interface; the Rust `Function`
@@ -115,10 +115,14 @@ cap "tensor.matmul_backward"
 cap "tensor.conv2d"
 cap "tensor.conv2d_backward"
 cap "tensor.max_pool"
+cap "tensor.max_pool_backward"
 cap "tensor.batch_norm"
 cap "tensor.reshape"
+cap "tensor.reshape_backward"
 cap "tensor.transpose"
+cap "tensor.transpose_backward"
 cap "tensor.concat"
+cap "tensor.concat_backward"
 cap "tensor.batch_norm_backward"
 cap "tensor.derive"
 op "tensor.zeros" : (List Int) -> Tensor
@@ -171,15 +175,28 @@ op "tensor.conv2d_backward" : Value... -> Value
 --- the kernel as the stride. Floor mode: trailing partial windows drop.
 op "tensor.max_pool" : Value... -> Tensor
   guarantee: True
+--- max_pool_backward(input, grad_out, kernel, stride?, padding?):
+--- each grad scatters to its window's argmax; returns {input}.
+op "tensor.max_pool_backward" : Value... -> Value
+  guarantee: True
 --- batch_norm(input, gamma, beta, mean, var, eps?) — variadic; `null`
 --- `eps` selects the 1e-5 default.
 op "tensor.batch_norm" : Value... -> Tensor
   guarantee: True
 op "tensor.reshape" : (Tensor * (List Int)) -> Tensor
   guarantee: True
+--- reshape_backward(input, shape, grad_out) -> {input}.
+op "tensor.reshape_backward" : (Tensor * (List Int) * Tensor) -> Value
+  guarantee: True
 op "tensor.transpose" : (Tensor * Int * Int) -> Tensor
   guarantee: True
+--- transpose_backward(input, d0, d1, grad_out) -> {input}.
+op "tensor.transpose_backward" : (Tensor * Int * Int * Tensor) -> Value
+  guarantee: True
 op "tensor.concat" : (Array * Int) -> Tensor
+  guarantee: True
+--- concat_backward(xs, axis, grad_out) -> {xs: per-input slices}.
+op "tensor.concat_backward" : (Array * Int * Tensor) -> Value
   guarantee: True
 --- batch_norm_backward(input, gamma, beta, mean, var, grad_out, eps?) —
 --- primal signature + upstream grad → {input, gamma, beta} grads.
@@ -205,10 +222,14 @@ handle "tensor.matmul_backward" with rust_tensor_matmul_backward
 handle "tensor.conv2d" with rust_tensor_conv2d
 handle "tensor.conv2d_backward" with rust_tensor_conv2d_backward
 handle "tensor.max_pool" with rust_tensor_max_pool
+handle "tensor.max_pool_backward" with rust_tensor_max_pool_backward
 handle "tensor.batch_norm" with rust_tensor_batch_norm
 handle "tensor.reshape" with rust_tensor_reshape
+handle "tensor.reshape_backward" with rust_tensor_reshape_backward
 handle "tensor.transpose" with rust_tensor_transpose
+handle "tensor.transpose_backward" with rust_tensor_transpose_backward
 handle "tensor.concat" with rust_tensor_concat
+handle "tensor.concat_backward" with rust_tensor_concat_backward
 handle "tensor.batch_norm_backward" with rust_tensor_batch_norm_backward
 handle "tensor.derive" with rust_tensor_derive
 
@@ -235,10 +256,14 @@ export tensor := {
   conv2d: "tensor.conv2d",
   conv2d_backward: "tensor.conv2d_backward",
   max_pool: "tensor.max_pool",
+  max_pool_backward: "tensor.max_pool_backward",
   batch_norm: "tensor.batch_norm",
   reshape: "tensor.reshape",
+  reshape_backward: "tensor.reshape_backward",
   transpose: "tensor.transpose",
+  transpose_backward: "tensor.transpose_backward",
   concat: "tensor.concat",
+  concat_backward: "tensor.concat_backward",
   batch_norm_backward: "tensor.batch_norm_backward",
     derive: "tensor.derive"
 }

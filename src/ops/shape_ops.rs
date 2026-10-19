@@ -2,7 +2,7 @@
 //! mirrored by lib-tensor's `shape_ops.hnl`.
 
 use handl_platform::{EvalContext, EvalError, Function};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::codec::{
     Tensor, decode_tensor, encode_tensor, require_extent, require_shape, require_tensor,
@@ -172,6 +172,156 @@ impl Function for Concat {
         }))
     }
 }
+/// The Rust handl for `op "tensor.reshape_backward" : Value... -> Value`.
+///
+/// The adjoint [`DERIV_PAIRS`](crate::ops::DERIV_PAIRS) registers for
+/// `tensor.reshape` — `reshape_backward(input, shape, grad_out)`: `g`
+/// relabeled back to the input's shape (a reshape moves no data).
+/// Returns `{"input": dx}`.
+#[derive(Debug, Clone, Copy)]
+pub struct ReshapeBackward;
+impl Function for ReshapeBackward {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        handl_lib_ops::shared::require_arg_count(args, 3)?;
+        let t = require_tensor(args, 0)?;
+        let shape = require_shape(args, 1)?;
+        let g = require_tensor(args, 2)?;
+        let expected = shape.iter().product::<usize>();
+        if expected != t.data.len() {
+            return Err(EvalError::Other(format!(
+                "tensor.reshape_backward: shape {shape:?} has {expected} elements, \
+                 input {:?} has {}",
+                t.shape,
+                t.data.len()
+            )));
+        }
+        if g.shape != shape {
+            return Err(EvalError::Other(format!(
+                "tensor.reshape_backward: grad_out shape {:?} != reshape output {shape:?}",
+                g.shape
+            )));
+        }
+        Ok(json!({
+            "input": encode_tensor(Tensor { shape: t.shape, data: g.data }),
+        }))
+    }
+}
+
+/// The Rust handl for `op "tensor.transpose_backward" : (Tensor * Int * Int * Tensor) -> Value`.
+///
+/// The adjoint of `tensor.transpose` — `transpose_backward(input, d0,
+/// d1, grad_out)`: `g` transposed along the same axes (transpose is
+/// self-inverse). Returns `{"input": dx}`.
+#[derive(Debug, Clone, Copy)]
+pub struct TransposeBackward;
+impl Function for TransposeBackward {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        handl_lib_ops::shared::require_arg_count(args, 4)?;
+        let t = require_tensor(args, 0)?;
+        let d0 = require_extent(&args[1])?;
+        let d1 = require_extent(&args[2])?;
+        let g = require_tensor(args, 3)?;
+        let dx = transpose_dims(&g, d0, d1)?;
+        if dx.shape != t.shape {
+            return Err(EvalError::Other(format!(
+                "tensor.transpose_backward: grad_out {:?} transposed to {:?} \
+                 != input {:?}",
+                g.shape, dx.shape, t.shape
+            )));
+        }
+        Ok(json!({ "input": encode_tensor(dx) }))
+    }
+}
+
+/// The Rust handl for `op "tensor.concat_backward" : (Array * Int * Tensor) -> Value`.
+///
+/// The adjoint of `tensor.concat` — `concat_backward(xs, axis,
+/// grad_out)`: `g` split back along `axis` at each input's extent,
+/// mirroring the primal's rank/axis-agreement checks. Returns
+/// `{"xs": [dx_1, ..., dx_n]}`.
+#[derive(Debug, Clone, Copy)]
+pub struct ConcatBackward;
+impl Function for ConcatBackward {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        handl_lib_ops::shared::require_arg_count(args, 3)?;
+        let arr = args[0]
+            .as_array()
+            .ok_or_else(|| type_mismatch("tensor list", "non-array"))?;
+        if arr.is_empty() {
+            return Err(EvalError::Other(
+                "tensor.concat_backward: empty tensor list".to_string(),
+            ));
+        }
+        let ts: Vec<Tensor> = arr
+            .iter()
+            .enumerate()
+            .map(|(_i, v)| decode_tensor(v))
+            .collect::<Result<_, _>>()?;
+        let axis = require_extent(&args[1])?;
+        let g = require_tensor(args, 2)?;
+        let rank = ts[0].shape.len();
+        if axis >= rank {
+            return Err(EvalError::Other(format!(
+                "tensor.concat_backward: axis {axis} out of range for rank {rank}"
+            )));
+        }
+        for (i, t) in ts.iter().enumerate().skip(1) {
+            if t.shape.len() != rank {
+                return Err(EvalError::Other(format!(
+                    "tensor.concat_backward: rank mismatch: element 0 rank {rank}, \
+                     element {i} rank {}",
+                    t.shape.len()
+                )));
+            }
+            for (d, (&e0, &ei)) in ts[0].shape.iter().zip(&t.shape).enumerate() {
+                if d != axis && e0 != ei {
+                    return Err(EvalError::Other(format!(
+                        "tensor.concat_backward: non-axis dim {d} mismatch: \
+                         element 0 extent {e0}, element {i} extent {ei}"
+                    )));
+                }
+            }
+        }
+        let total: usize = ts.iter().map(|t| t.shape[axis]).sum();
+        let mut out_shape = ts[0].shape.clone();
+        out_shape[axis] = total;
+        if g.shape != out_shape {
+            return Err(EvalError::Other(format!(
+                "tensor.concat_backward: grad_out shape {:?} != concat output {out_shape:?}",
+                g.shape
+            )));
+        }
+        let g_strides = row_major_strides(&g.shape);
+        let mut dxs = Vec::with_capacity(ts.len());
+        let mut off = 0usize;
+        for t in &ts {
+            let t_rank = t.shape.len();
+            let mut data = Vec::with_capacity(t.data.len());
+            let mut idx = vec![0usize; t_rank];
+            for _ in 0..t.data.len() {
+                let mut goff = off * g_strides[axis];
+                for (d, &i) in idx.iter().enumerate() {
+                    goff += i * g_strides[d];
+                }
+                data.push(g.data[goff]);
+                for d in (0..t_rank).rev() {
+                    idx[d] += 1;
+                    if idx[d] < t.shape[d] {
+                        break;
+                    }
+                    idx[d] = 0;
+                }
+            }
+            off += t.shape[axis];
+            dxs.push(encode_tensor(Tensor {
+                shape: t.shape.clone(),
+                data,
+            }));
+        }
+        Ok(json!({ "xs": dxs }))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -330,4 +480,104 @@ mod tests {
             .is_err()
         );
     }
+
+    // ── backward ──────────────────────────────────────────────────────
+
+    #[test]
+    fn reshape_backward_relabels_grad() {
+        let v = call_fn(
+            &ReshapeBackward,
+            &[
+                tensor(&[2, 3], &[0.0; 6]),
+                json!([3, 2]),
+                tensor(&[3, 2], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]),
+            ],
+        )
+        .unwrap();
+        assert_eq!(v["input"], tensor(&[2, 3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]));
+        // grad must be the reshape output's shape.
+        assert!(
+            call_fn(
+                &ReshapeBackward,
+                &[
+                    tensor(&[2, 3], &[0.0; 6]),
+                    json!([3, 2]),
+                    tensor(&[2, 3], &[0.0; 6]),
+                ]
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn transpose_backward_is_self_inverse() {
+        let v = call_fn(
+            &TransposeBackward,
+            &[
+                tensor(&[2, 3], &[0.0; 6]),
+                json!(0),
+                json!(1),
+                tensor(&[3, 2], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]),
+            ],
+        )
+        .unwrap();
+        // g [3,2] transposed back → [[1,3,5],[2,4,6]] shape [2,3].
+        assert_eq!(v["input"], tensor(&[2, 3], &[1.0, 3.0, 5.0, 2.0, 4.0, 6.0]));
+        // grad that transposes to the wrong shape errors.
+        assert!(
+            call_fn(
+                &TransposeBackward,
+                &[
+                    tensor(&[2, 3], &[0.0; 6]),
+                    json!(0),
+                    json!(1),
+                    tensor(&[2, 3], &[0.0; 6]),
+                ]
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn concat_backward_splits_at_extents() {
+        // concat([[2,2],[2,2]], axis 1) → [2,4]; g = 1..8 splits back.
+        let v = call_fn(
+            &ConcatBackward,
+            &[
+                json!([tensor(&[2, 2], &[0.0; 4]), tensor(&[2, 2], &[0.0; 4])]),
+                json!(1),
+                tensor(&[2, 4], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]),
+            ],
+        )
+        .unwrap();
+        let xs = v["xs"].as_array().unwrap();
+        assert_eq!(xs[0], tensor(&[2, 2], &[1.0, 2.0, 5.0, 6.0]));
+        assert_eq!(xs[1], tensor(&[2, 2], &[3.0, 4.0, 7.0, 8.0]));
+        // axis-0 stack: g [4,1] splits to [2,1]+[2,1].
+        let v = call_fn(
+            &ConcatBackward,
+            &[
+                json!([tensor(&[2, 1], &[0.0; 2]), tensor(&[2, 1], &[0.0; 2])]),
+                json!(0),
+                tensor(&[4, 1], &[1.0, 2.0, 3.0, 4.0]),
+            ],
+        )
+        .unwrap();
+        let xs = v["xs"].as_array().unwrap();
+        assert_eq!(xs[0], tensor(&[2, 1], &[1.0, 2.0]));
+        assert_eq!(xs[1], tensor(&[2, 1], &[3.0, 4.0]));
+        // mismatched grad shape / rank errors.
+        assert!(
+            call_fn(
+                &ConcatBackward,
+                &[
+                    json!([tensor(&[2, 2], &[0.0; 4]), tensor(&[2, 2], &[0.0; 4])]),
+                    json!(1),
+                    tensor(&[2, 2], &[0.0; 4]),
+                ]
+            )
+            .is_err()
+        );
+    }
 }
+

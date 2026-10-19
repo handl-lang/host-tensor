@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use super::codec::{
     Tensor, encode_tensor, has_opt_arg, opt_extent_pair, opt_positive_int, opt_tensor,
-    require_arg_range, require_tensor, type_mismatch,
+    require_arg_range, require_extent, require_tensor, type_mismatch,
 };
 
 /// The Rust handl for `op "tensor.conv2d" : Value... -> Tensor`.
@@ -383,6 +383,127 @@ impl Function for Conv2dBackward {
     }
 }
 
+/// The required `[h, w]` (or scalar → `[k, k]`) spatial pair — `kernel`
+/// on `max_pool_backward`, which has no default. Mirrors `pair_or` on
+/// the `.hnl` side / `opt_extent_pair` without the `null`-is-default arm.
+fn require_extent_pair(v: &Value, what: &str) -> Result<[usize; 2], EvalError> {
+    match v {
+        Value::Number(_) => {
+            let k = require_extent(v)?;
+            Ok([k, k])
+        }
+        Value::Array(a) if a.len() == 2 => {
+            Ok([require_extent(&a[0])?, require_extent(&a[1])?])
+        }
+        _ => Err(type_mismatch(
+            &format!("{what}: int or [h, w] pair"),
+            "other",
+        )),
+    }
+}
+
+/// The Rust handl for `op "tensor.max_pool_backward" : Value... -> Value`.
+///
+/// The adjoint [`DERIV_PAIRS`](crate::ops::DERIV_PAIRS) registers for
+/// `tensor.max_pool` — `max_pool_backward(input, grad_out, kernel,
+/// stride?, padding?)`: the input's gradient, scattered to each output
+/// element's argmax position (first maximum in row-major scan order —
+/// the primal's tie rule). Returns `{"input": dx}`.
+#[derive(Debug, Clone, Copy)]
+pub struct MaxPoolBackward;
+impl Function for MaxPoolBackward {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 3, 5, "tensor.max_pool_backward")?;
+        let t = require_tensor(args, 0)?;
+        let g = require_tensor(args, 1)?;
+        let [k_h, k_w] = require_extent_pair(&args[2], "kernel")?;
+        let [s_h, s_w] = opt_extent_pair(args, 3, [k_h, k_w], "tensor.max_pool_backward: stride")?;
+        let [p_h, p_w] = opt_extent_pair(args, 4, [0, 0], "tensor.max_pool_backward: padding")?;
+        if k_h == 0 || k_w == 0 {
+            return Err(EvalError::Other(format!(
+                "tensor.max_pool_backward: kernel must be positive, got [{k_h}, {k_w}]"
+            )));
+        }
+        if s_h == 0 || s_w == 0 {
+            return Err(EvalError::Other(format!(
+                "tensor.max_pool_backward: stride must be positive, got [{s_h}, {s_w}]"
+            )));
+        }
+        if t.shape.len() != 4 || g.shape.len() != 4 {
+            return Err(EvalError::Other(format!(
+                "tensor.max_pool_backward: expected rank-4 input and grad_out, got {} and {}",
+                t.shape.len(),
+                g.shape.len()
+            )));
+        }
+        let (n, c, h, w) = (t.shape[0], t.shape[1], t.shape[2], t.shape[3]);
+        let Some(h_out_num) = (h + 2 * p_h).checked_sub(k_h) else {
+            return Err(EvalError::Other(format!(
+                "tensor.max_pool_backward: kernel height {k_h} exceeds padded input height {}",
+                h + 2 * p_h
+            )));
+        };
+        let Some(w_out_num) = (w + 2 * p_w).checked_sub(k_w) else {
+            return Err(EvalError::Other(format!(
+                "tensor.max_pool_backward: kernel width {k_w} exceeds padded input width {}",
+                w + 2 * p_w
+            )));
+        };
+        let h_out = h_out_num / s_h + 1;
+        let w_out = w_out_num / s_w + 1;
+        if g.shape != [n, c, h_out, w_out] {
+            return Err(EvalError::Other(format!(
+                "tensor.max_pool_backward: grad_out shape {:?} != max_pool output {:?}",
+                g.shape,
+                [n, c, h_out, w_out]
+            )));
+        }
+        let mut dx = vec![0.0; n * c * h * w];
+        for bn in 0..n {
+            for ch in 0..c {
+                for oy in 0..h_out {
+                    for ox in 0..w_out {
+                        let gv = g.data[((bn * c + ch) * h_out + oy) * w_out + ox];
+                        // Re-derive the argmax exactly as the primal
+                        // scanned: first maximum in (ky, kx) order.
+                        let mut best = f64::NEG_INFINITY;
+                        let mut best_off = 0usize;
+                        for ky in 0..k_h {
+                            let iy = oy * s_h + ky;
+                            if iy < p_h {
+                                continue;
+                            }
+                            let iy = iy - p_h;
+                            if iy >= h {
+                                continue;
+                            }
+                            for kx in 0..k_w {
+                                let ix = ox * s_w + kx;
+                                if ix < p_w {
+                                    continue;
+                                }
+                                let ix = ix - p_w;
+                                if ix >= w {
+                                    continue;
+                                }
+                                let off = ((bn * c + ch) * h + iy) * w + ix;
+                                if t.data[off] > best {
+                                    best = t.data[off];
+                                    best_off = off;
+                                }
+                            }
+                        }
+                        dx[best_off] += gv;
+                    }
+                }
+            }
+        }
+        Ok(json!({
+            "input": encode_tensor(Tensor { shape: t.shape, data: dx }),
+        }))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -633,6 +754,78 @@ mod tests {
             .is_err()
         );
         assert!(call_fn(&Conv2dBackward, &[input, weight]).is_err());
+    }
+
+    // ── max_pool_backward ─────────────────────────────────────────────
+
+    #[test]
+    fn max_pool_backward_scatters_to_argmax() {
+        // [1,1,4,4] = 1..16, 2x2 non-overlap, g = 1,2,3,4 → each grad
+        // lands on its window's max (bottom-right corners).
+        let input = tensor(
+            &[1, 1, 4, 4],
+            &[
+                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
+                16.0,
+            ],
+        );
+        let grad = tensor(&[1, 1, 2, 2], &[1.0, 2.0, 3.0, 4.0]);
+        let v = call_fn(
+            &MaxPoolBackward,
+            &[input, grad, json!(2)],
+        )
+        .unwrap();
+        assert_eq!(
+            v["input"],
+            tensor(
+                &[1, 1, 4, 4],
+                &[
+                    0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 3.0, 0.0,
+                    4.0,
+                ]
+            )
+        );
+    }
+
+    #[test]
+    fn max_pool_backward_tie_and_errors() {
+        // Tie: first max in scan order wins (the primal's rule).
+        let v = call_fn(
+            &MaxPoolBackward,
+            &[
+                tensor(&[1, 1, 2, 2], &[5.0, 5.0, 1.0, 1.0]),
+                tensor(&[1, 1, 1, 1], &[7.0]),
+                json!(2),
+            ],
+        )
+        .unwrap();
+        assert_eq!(v["input"], tensor(&[1, 1, 2, 2], &[7.0, 0.0, 0.0, 0.0]));
+        // grad shape must be the pool output.
+        assert!(
+            call_fn(
+                &MaxPoolBackward,
+                &[
+                    tensor(&[1, 1, 2, 2], &[0.0; 4]),
+                    tensor(&[1, 1, 2, 2], &[0.0; 4]),
+                    json!(2)
+                ]
+            )
+            .is_err()
+        );
+        // kernel required; stride zero rejected.
+        assert!(call_fn(&MaxPoolBackward, &[tensor(&[1,1,2,2],&[0.0;4]), tensor(&[1,1,1,1],&[0.0])]).is_err());
+        assert!(
+            call_fn(
+                &MaxPoolBackward,
+                &[
+                    tensor(&[1, 1, 2, 2], &[0.0; 4]),
+                    tensor(&[1, 1, 1, 1], &[0.0]),
+                    json!(2),
+                    json!(0)
+                ]
+            )
+            .is_err()
+        );
     }
 
     // ── max_pool ──────────────────────────────────────────────────────

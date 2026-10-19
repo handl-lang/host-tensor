@@ -1,7 +1,7 @@
 //! Rust `Function` impls for the `tensor` module — the handls (handlers)
 //! for the `op`/`handle` declarations in `src/index.hnl`.
 //!
-//! All 24 functions are FFI atoms: a tensor has no literal syntax and no
+//! All 28 functions are FFI atoms: a tensor has no literal syntax and no
 //! eval-vocabulary constructor, so construction, projection, and algebra
 //! cannot be expressed as pure handl arrows. The impls here are the
 //! host-side half runtimes compose: a consumer registers them in an
@@ -17,10 +17,10 @@
 //! | [`codec`] | the wire codec + `zeros`/`ones`/`from_list`/`to_list`/`shape` | `codec.hnl` |
 //! | [`elementwise`] | `add`/`mul`/`sub`/`div` + their `*_backward` adjoints | `elementwise.hnl` |
 //! | [`matmul`] | `matmul` (rank-2/3, batch broadcast) + `matmul_backward` | `matmul.hnl` |
-//! | [`conv`] | `conv2d`, `max_pool`, `conv2d_backward` (NCHW) | `conv.hnl` |
+//! | [`conv`] | `conv2d`, `max_pool` + their `*_backward` (NCHW) | `conv.hnl` |
 //! | [`norm`] | `batch_norm`, `batch_norm_backward` | `norm.hnl` |
-//! | [`shape_ops`] | `reshape`, `transpose`, `concat` | `shape_ops.hnl` |
-//! | [`derive`] | `derive` + `DERIV_PAIRS` (7 pairs) | `norm.hnl`'s `derive` |
+//! | [`shape_ops`] | `reshape`, `transpose`, `concat` + their `*_backward` | `shape_ops.hnl` |
+//! | [`derive`] | `derive` + `DERIV_PAIRS` (11 pairs) | `norm.hnl`'s `derive` |
 //!
 //! ## The tensor value
 //!
@@ -47,12 +47,12 @@ pub mod norm;
 pub mod shape_ops;
 
 pub use codec::{FromList, Ones, Shape, ToList, Zeros};
-pub use conv::{Conv2d, Conv2dBackward, MaxPool};
+pub use conv::{Conv2d, Conv2dBackward, MaxPool, MaxPoolBackward};
 pub use derive::{DERIV_PAIRS, Derive};
 pub use elementwise::{Add, AddBackward, Div, DivBackward, Mul, MulBackward, Sub, SubBackward};
 pub use matmul::{Matmul, MatmulBackward};
 pub use norm::{BatchNorm, BatchNormBackward};
-pub use shape_ops::{Concat, Reshape, Transpose};
+pub use shape_ops::{Concat, ConcatBackward, Reshape, ReshapeBackward, Transpose, TransposeBackward};
 
 /// The op names declared in `src/index.hnl`, in declaration order.
 pub const TENSOR_OPS: &[&str] = &[
@@ -74,10 +74,14 @@ pub const TENSOR_OPS: &[&str] = &[
     "tensor.conv2d",
     "tensor.conv2d_backward",
     "tensor.max_pool",
+    "tensor.max_pool_backward",
     "tensor.batch_norm",
     "tensor.reshape",
+    "tensor.reshape_backward",
     "tensor.transpose",
+    "tensor.transpose_backward",
     "tensor.concat",
+    "tensor.concat_backward",
     "tensor.batch_norm_backward",
     "tensor.derive",
 ];
@@ -108,10 +112,14 @@ pub fn tensor_op_registry() -> OpRegistry {
     registry.register("tensor.conv2d", Arc::new(Conv2d));
     registry.register("tensor.conv2d_backward", Arc::new(Conv2dBackward));
     registry.register("tensor.max_pool", Arc::new(MaxPool));
+    registry.register("tensor.max_pool_backward", Arc::new(MaxPoolBackward));
     registry.register("tensor.batch_norm", Arc::new(BatchNorm));
     registry.register("tensor.reshape", Arc::new(Reshape));
+    registry.register("tensor.reshape_backward", Arc::new(ReshapeBackward));
     registry.register("tensor.transpose", Arc::new(Transpose));
+    registry.register("tensor.transpose_backward", Arc::new(TransposeBackward));
     registry.register("tensor.concat", Arc::new(Concat));
+    registry.register("tensor.concat_backward", Arc::new(ConcatBackward));
     registry.register("tensor.batch_norm_backward", Arc::new(BatchNormBackward));
     registry.register("tensor.derive", Arc::new(Derive));
     registry
