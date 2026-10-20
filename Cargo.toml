@@ -3,7 +3,7 @@ name = "handl-host-tensor"
 version = "0.1.0"
 edition = "2024"
 description = "Host-side tensor functions for handl runtimes — an n-d dense array (f64) behind the `tensor.*` op surface."
-license = "MIT OR Apache-2.0"
+license = "MIT"
 repository = "https://github.com/handl-lang/host-tensor"
 
 [dependencies]
