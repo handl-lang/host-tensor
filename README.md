@@ -31,6 +31,10 @@ The surface (28 FFI atoms, `src/index.hnl` is the single source of truth):
 | `tensor.transpose` | `(Tensor * Int * Int) -> Tensor` | swap axes `d0`/`d1` |
 | `tensor.concat` | `(Array * Int) -> Tensor` | join a list of same-rank tensors along `axis` |
 | `tensor.batch_norm_backward` | `Value... -> Value` | adjoint of `batch_norm`: primal args + `grad_out` → `{input, gamma, beta}` |
+| `tensor.max_pool_backward` | `Value... -> Value` | adjoint of `max_pool`: `(input, grad_out, kernel, stride?, padding?)` → `{input}` — each grad scatters to its window's argmax |
+| `tensor.reshape_backward` | `(Tensor * (List Int) * Tensor) -> Value` | adjoint of `reshape`: `(input, shape, grad_out)` → `{input}` |
+| `tensor.transpose_backward` | `(Tensor * Int * Int * Tensor) -> Value` | adjoint of `transpose`: `(input, d0, d1, grad_out)` → `{input}` |
+| `tensor.concat_backward` | `(Array * Int * Tensor) -> Value` | adjoint of `concat`: `(xs, axis, grad_out)` → `{xs}` — per-input slices |
 | `tensor.derive` | `String -> Value` | registered adjoint op name for `name`, or `null` |
 
 **Broadcasting** — the elementwise four (`add`/`mul`/`sub`/`div`)
