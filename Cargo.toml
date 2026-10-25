@@ -48,9 +48,6 @@ hnl-engine-lex = { path = "../engine-lex" }
 [patch."https://github.com/handl-lang/engine-lex-pattern"]
 hnl-engine-lex-pattern = { path = "../engine-lex-pattern" }
 
-[patch."https://github.com/handl-lang/engine-lint"]
-hnl-engine-lint = { path = "../engine-lint" }
-
 [patch."https://github.com/handl-lang/engine-parse"]
 hnl-engine-parse = { path = "../engine-parse" }
 
@@ -73,9 +70,6 @@ handl-value = { path = "../kernel/crates/handl-value" }
 [patch."https://github.com/handl-lang/kit-data-prelude"]
 handl-kit-data-prelude = { path = "../kit-data-prelude/crates/handl-kit-data-prelude" }
 
-[patch."https://github.com/handl-lang/lib-ops"]
-handl-lib-ops = { path = "../kernel/crates/ops" }
-
 [patch."https://github.com/handl-lang/host"]
 handl-kit-data = { path = "../host/crates/handl-kit-data" }
 handl-platform = { path = "../host/crates/platform" }
@@ -89,9 +83,6 @@ handl-lib-char = { path = "../lib-char" }
 
 [patch."https://github.com/handl-lang/lib-char-native"]
 handl-plugin-lib-char-native = { path = "../lib-char-native" }
-
-[patch."https://github.com/handl-lang/lib-dedent"]
-handl-lib-dedent = { path = "../lib-dedent" }
 
 [patch."https://github.com/handl-lang/lib-desugar"]
 handl-lib-desugar = { path = "../lib-desugar" }

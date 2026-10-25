@@ -3,10 +3,41 @@
 version = 4
 
 [[package]]
+name = "ar_archive_writer"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73cd58deff2140a0a8eae87e417bd01db68a33e148aa93d1e8cd837e55e312b6"
+dependencies = [
+ "object",
+]
+
+[[package]]
+name = "cc"
+version = "1.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86e055fa6e3e40ad6187ba25b6855eeb635d5271f8e0f0e1e9a5826b8d75bea0"
+dependencies = [
+ "find-msvc-tools",
+ "shlex",
+]
+
+[[package]]
+name = "cfg-if"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
+
+[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
+
+[[package]]
+name = "find-msvc-tools"
+version = "0.1.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
 name = "handl-host-tensor"
@@ -63,7 +94,7 @@ dependencies = [
 [[package]]
 name = "handl-kit-prelude-lang"
 version = "0.1.0"
-source = "git+https://github.com/handl-lang/kit-prelude-lang?branch=main#7824a7c9a748bd9ebe5f66f576b692934ea645bd"
+source = "git+https://github.com/handl-lang/kit-prelude-lang?branch=main#38c76edec0cea989ee13dd264cfd220784106181"
 dependencies = [
  "handl-language",
  "handl-plugin-ext-diag",
@@ -76,7 +107,9 @@ dependencies = [
 name = "handl-language"
 version = "0.1.0"
 dependencies = [
+ "handl-value",
  "hnl-engine",
+ "rustc-hash",
  "serde",
  "serde_json",
  "thiserror",
@@ -97,7 +130,7 @@ version = "0.1.0"
 [[package]]
 name = "handl-lib-ops"
 version = "0.1.0"
-source = "git+https://github.com/handl-lang/kernel?branch=main#b3d3bfbbdfcf5eaa145b017a1b350ca7203c3633"
+source = "git+https://github.com/handl-lang/kernel?branch=main#5f22283e1bdd9b1f5c6f886027bc04e535b2aa6d"
 dependencies = [
  "handl-platform",
  "serde_json",
@@ -111,6 +144,7 @@ version = "0.1.0"
 name = "handl-platform"
 version = "0.1.0"
 dependencies = [
+ "handl-value",
  "semver",
  "serde",
  "serde_json",
@@ -209,6 +243,7 @@ dependencies = [
  "handl-value",
  "serde",
  "serde_json",
+ "stacker",
 ]
 
 [[package]]
@@ -220,6 +255,7 @@ dependencies = [
  "handl-value",
  "rustc-hash",
  "serde_json",
+ "stacker",
 ]
 
 [[package]]
@@ -237,6 +273,7 @@ dependencies = [
  "hnl-engine-transform-rewrite",
  "rustc-hash",
  "serde_json",
+ "stacker",
 ]
 
 [[package]]
@@ -250,6 +287,7 @@ dependencies = [
  "hnl-engine-exec",
  "rustc-hash",
  "serde_json",
+ "stacker",
 ]
 
 [[package]]
@@ -334,10 +372,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "libc"
+version = "0.2.191"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+
+[[package]]
+name = "object"
+version = "0.39.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e5a6c098c7a3b6547378093f5cc30bc54fd361ce711e05293a5cc589562739b"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "proc-macro2"
@@ -346,6 +399,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "psm"
+version = "0.1.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4dcd034599e63b970727f70d79e02d62390a4a84f7c6b827c27c46d5ac3fa622"
+dependencies = [
+ "ar_archive_writer",
+ "cc",
 ]
 
 [[package]]
@@ -441,6 +504,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "shlex"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+
+[[package]]
+name = "stacker"
+version = "0.1.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "707f49d46706bacf8a2b00d51dace3f9de527c13eec3778f570c411f89e69967"
+dependencies = [
+ "cc",
+ "cfg-if",
+ "libc",
+ "psm",
+ "windows-sys",
+]
+
+[[package]]
 name = "syn"
 version = "3.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -525,6 +607,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
+name = "windows-link"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
+
+[[package]]
+name = "windows-sys"
+version = "0.61.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
+dependencies = [
+ "windows-link",
+]
+
+[[package]]
 name = "winnow"
 version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -582,15 +679,3 @@ version = "0.0.0"
 [[patch.unused]]
 name = "sepia-testkit"
 version = "0.0.0"
-
-[[patch.unused]]
-name = "handl-lib-ops"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "handl-lib-dedent"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "hnl-engine-lint"
-version = "0.1.0"
