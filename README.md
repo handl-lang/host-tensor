@@ -207,3 +207,13 @@ it stays the `Function`-boundary form, and engines without the variant
 still see a plain object. One asymmetry to note: inside an engine the
 variant carries non-finite `f64`s, but any `serde_json` crossing still
 serializes them as `null` (the codec's documented finite-only hole).
+
+## Documentation
+
+Published site (Diátaxis): <https://handl-lang.github.io/docs/host-tensor/>
+
+- [Reference](https://handl-lang.github.io/docs/host-tensor/reference/) — public API surface
+- [How-to](https://handl-lang.github.io/docs/host-tensor/how-to/) — task recipes
+- [Explanation](https://handl-lang.github.io/docs/host-tensor/explanation/) — design and rationale
+
+Decision records live on the `project` branch under `project/adrs/`.
