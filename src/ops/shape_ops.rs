@@ -99,6 +99,49 @@ pub(crate) fn transpose_dims(t: &Tensor, d0: usize, d1: usize) -> Result<Tensor,
     })
 }
 
+/// Decode a possibly-negative integer dim — `unsqueeze`'s `dim` attr
+/// counts from the end when negative (torch semantics, matching
+/// mlopt's `d % (rank + 1)` typing rule). Integral floats count, the
+/// `require_extent` convention.
+fn require_dim(arg: &Value) -> Result<i64, EvalError> {
+    let n = arg
+        .as_i64()
+        .or_else(|| arg.as_u64().and_then(|n| i64::try_from(n).ok()))
+        .or_else(|| {
+            arg.as_f64()
+                .filter(|n| n.fract() == 0.0 && n.is_finite())
+                .map(|n| n as i64)
+        });
+    n.ok_or_else(|| type_mismatch("integer dim", "other"))
+}
+
+/// The Rust handl for `op "tensor.unsqueeze" : (Tensor * Int) -> Tensor`.
+///
+/// `unsqueeze(t, dim)` inserts a size-1 axis at `dim` — torch's
+/// `unsqueeze`: the payload is unchanged (a view, like `reshape`),
+/// `dim` may be negative (`-(rank+1) <= dim <= rank`, wrapped by
+/// `rem_euclid(rank + 1)` exactly as mlopt's shape typing spells it).
+/// No adjoint is registered: the backward is `squeeze`, which is not
+/// on the surface — `tensor.derive("unsqueeze")` honestly returns
+/// `null`.
+#[derive(Debug, Clone, Copy)]
+pub struct Unsqueeze;
+impl Function for Unsqueeze {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        handl_lib_ops::shared::require_arg_count(args, 2)?;
+        let t = require_tensor(args, 0)?;
+        let dim = require_dim(&args[1])?;
+        let rank = t.shape.len() as i64;
+        let d = dim.rem_euclid(rank + 1);
+        let mut shape = t.shape.clone();
+        shape.insert(d as usize, 1);
+        Ok(encode_tensor(Tensor {
+            shape,
+            data: t.data,
+        }))
+    }
+}
+
 /// The Rust handl for `op "tensor.concat" : (Array * Int) -> Tensor`.
 ///
 /// `concat(xs, axis)` joins a non-empty list of tensors along `axis`.
@@ -358,6 +401,36 @@ mod tests {
     fn reshape_rejects_wrong_element_count() {
         assert!(call_fn(&Reshape, &[tensor(&[2, 3], &[0.0; 6]), json!([2, 2])]).is_err());
         assert!(call_fn(&Reshape, &[tensor(&[2, 3], &[0.0; 6]), json!([7])]).is_err());
+    }
+
+    #[test]
+    fn unsqueeze_inserts_axis_and_wraps_negative_dim() {
+        let t = tensor(&[2, 3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        // dim 0 → leading axis; dim 2 → trailing; dim -1 → same.
+        assert_eq!(
+            call_fn(&Unsqueeze, &[t.clone(), json!(0)]).unwrap(),
+            tensor(&[1, 2, 3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+        );
+        assert_eq!(
+            call_fn(&Unsqueeze, &[t.clone(), json!(2)]).unwrap(),
+            tensor(&[2, 3, 1], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+        );
+        assert_eq!(
+            call_fn(&Unsqueeze, &[t.clone(), json!(-1)]).unwrap(),
+            tensor(&[2, 3, 1], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+        );
+        // rank-0 → rank-1; out-of-range dims wrap like mlopt's typing.
+        assert_eq!(
+            call_fn(&Unsqueeze, &[tensor(&[], &[7.0]), json!(0)]).unwrap(),
+            tensor(&[1], &[7.0])
+        );
+        assert_eq!(
+            call_fn(&Unsqueeze, &[t.clone(), json!(9)]).unwrap(),
+            call_fn(&Unsqueeze, &[t.clone(), json!(0)]).unwrap()
+        );
+        // non-integer dims refuse.
+        assert!(call_fn(&Unsqueeze, &[t.clone(), json!(0.5)]).is_err());
+        assert!(call_fn(&Unsqueeze, &[t.clone(), json!("a")]).is_err());
     }
 
     #[test]

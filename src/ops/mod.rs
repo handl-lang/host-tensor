@@ -52,7 +52,9 @@ pub use derive::{DERIV_PAIRS, Derive};
 pub use elementwise::{Add, AddBackward, Div, DivBackward, Mul, MulBackward, Sub, SubBackward};
 pub use matmul::{Matmul, MatmulBackward};
 pub use norm::{BatchNorm, BatchNormBackward};
-pub use shape_ops::{Concat, ConcatBackward, Reshape, ReshapeBackward, Transpose, TransposeBackward};
+pub use shape_ops::{
+    Concat, ConcatBackward, Reshape, ReshapeBackward, Transpose, TransposeBackward, Unsqueeze,
+};
 
 /// The op names declared in `src/index.hnl`, in declaration order.
 pub const TENSOR_OPS: &[&str] = &[
@@ -80,6 +82,7 @@ pub const TENSOR_OPS: &[&str] = &[
     "tensor.reshape_backward",
     "tensor.transpose",
     "tensor.transpose_backward",
+    "tensor.unsqueeze",
     "tensor.concat",
     "tensor.concat_backward",
     "tensor.batch_norm_backward",
@@ -118,6 +121,7 @@ pub fn tensor_op_registry() -> OpRegistry {
     registry.register("tensor.reshape_backward", Arc::new(ReshapeBackward));
     registry.register("tensor.transpose", Arc::new(Transpose));
     registry.register("tensor.transpose_backward", Arc::new(TransposeBackward));
+    registry.register("tensor.unsqueeze", Arc::new(Unsqueeze));
     registry.register("tensor.concat", Arc::new(Concat));
     registry.register("tensor.concat_backward", Arc::new(ConcatBackward));
     registry.register("tensor.batch_norm_backward", Arc::new(BatchNormBackward));

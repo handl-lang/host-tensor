@@ -121,6 +121,7 @@ cap "tensor.reshape"
 cap "tensor.reshape_backward"
 cap "tensor.transpose"
 cap "tensor.transpose_backward"
+cap "tensor.unsqueeze"
 cap "tensor.concat"
 cap "tensor.concat_backward"
 cap "tensor.batch_norm_backward"
@@ -193,6 +194,11 @@ op "tensor.transpose" : (Tensor * Int * Int) -> Tensor
 --- transpose_backward(input, d0, d1, grad_out) -> {input}.
 op "tensor.transpose_backward" : (Tensor * Int * Int * Tensor) -> Value
   guarantee: True
+--- unsqueeze(t, dim) — insert a size-1 axis; negative dim counts
+--- from the end (torch semantics, d % (rank+1)). No backward on the
+--- surface (the adjoint is squeeze, undeclared) — derive returns null.
+op "tensor.unsqueeze" : (Tensor * Int) -> Tensor
+  guarantee: True
 op "tensor.concat" : (Array * Int) -> Tensor
   guarantee: True
 --- concat_backward(xs, axis, grad_out) -> {xs: per-input slices}.
@@ -228,6 +234,7 @@ handle "tensor.reshape" with rust_tensor_reshape
 handle "tensor.reshape_backward" with rust_tensor_reshape_backward
 handle "tensor.transpose" with rust_tensor_transpose
 handle "tensor.transpose_backward" with rust_tensor_transpose_backward
+handle "tensor.unsqueeze" with rust_tensor_unsqueeze
 handle "tensor.concat" with rust_tensor_concat
 handle "tensor.concat_backward" with rust_tensor_concat_backward
 handle "tensor.batch_norm_backward" with rust_tensor_batch_norm_backward
@@ -262,6 +269,7 @@ export tensor := {
   reshape_backward: "tensor.reshape_backward",
   transpose: "tensor.transpose",
   transpose_backward: "tensor.transpose_backward",
+  unsqueeze: "tensor.unsqueeze",
   concat: "tensor.concat",
   concat_backward: "tensor.concat_backward",
   batch_norm_backward: "tensor.batch_norm_backward",
