@@ -5,7 +5,7 @@ use handl_platform::{EvalContext, EvalError, Function};
 use serde_json::{Value, json};
 
 use super::codec::{Tensor, encode_tensor, require_tensor};
-use super::elementwise::unbroadcast;
+use super::elementwise::{broadcast_elementwise, unbroadcast};
 use super::shape_ops::transpose_dims;
 
 /// The checked operand geometry of `matmul(a, b)`: ranks ∈ {2, 3}, the
@@ -155,6 +155,41 @@ impl Function for MatmulBackward {
         }))
     }
 }
+/// The Rust handl for `op "tensor.linear" : (Tensor * Tensor * Tensor) -> Tensor`.
+///
+/// `linear(x, w, b)` is torch's `F.linear` — `x @ wᵀ + b`: `w` is the
+/// `(out_features, in_features)` weight, `x` any rank-2/3 `(*, in)`
+/// operand (rank-3 batches like `matmul`), and `b` the `(out,)` bias
+/// broadcast over the trailing axis. No adjoint is registered — the
+/// backward is `linear_backward` (grad wrt x/w/b), undeclared —
+/// `tensor.derive("linear")` honestly returns `null`.
+#[derive(Debug, Clone, Copy)]
+pub struct Linear;
+impl Function for Linear {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        handl_lib_ops::shared::require_arg_count(args, 3)?;
+        let x = require_tensor(args, 0)?;
+        let w = require_tensor(args, 1)?;
+        let b = require_tensor(args, 2)?;
+        if w.shape.len() != 2 {
+            return Err(EvalError::Other(format!(
+                "tensor.linear: weight must be rank-2 (out, in), got {:?}",
+                w.shape
+            )));
+        }
+        // x @ wᵀ: transpose the weight's (out, in) to (in, out).
+        let wt = transpose_dims(&w, 0, 1)?;
+        let dims = matmul_dims(&x, &wt, "tensor.linear")?;
+        let prod = matmul_compute(&x, &wt, &dims);
+        Ok(encode_tensor(broadcast_elementwise(
+            &prod,
+            &b,
+            "tensor.linear",
+            |y, bias| y + bias,
+        )?))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -207,6 +242,56 @@ mod tests {
             call_fn(
                 &Matmul,
                 &[tensor(&[1, 1, 1, 1], &[0.0]), tensor(&[2, 2], &[0.0; 4])]
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn linear_is_matmul_transposed_weight_plus_bias() {
+        // x [[1,2],[3,4]] (2x2), w [[1,0],[0,1],[1,1]] (out=3,in=2),
+        // b [10,20,30]: x@wᵀ = [[1,2,3],[3,4,7]] → +b = [[11,22,33],[13,24,37]].
+        let v = call_fn(
+            &Linear,
+            &[
+                tensor(&[2, 2], &[1.0, 2.0, 3.0, 4.0]),
+                tensor(&[3, 2], &[1.0, 0.0, 0.0, 1.0, 1.0, 1.0]),
+                tensor(&[3], &[10.0, 20.0, 30.0]),
+            ],
+        )
+        .unwrap();
+        assert_eq!(v, tensor(&[2, 3], &[11.0, 22.0, 33.0, 13.0, 24.0, 37.0]));
+        // rank-3 x batches like matmul: (1,2,2) x → (1,2,3).
+        let v = call_fn(
+            &Linear,
+            &[
+                tensor(&[1, 2, 2], &[1.0, 2.0, 3.0, 4.0]),
+                tensor(&[3, 2], &[1.0, 0.0, 0.0, 1.0, 1.0, 1.0]),
+                tensor(&[3], &[0.0, 0.0, 0.0]),
+            ],
+        )
+        .unwrap();
+        assert_eq!(v, tensor(&[1, 2, 3], &[1.0, 2.0, 3.0, 3.0, 4.0, 7.0]));
+        // non-rank-2 weight and a bias that cannot broadcast refuse.
+        assert!(
+            call_fn(
+                &Linear,
+                &[
+                    tensor(&[2, 2], &[0.0; 4]),
+                    tensor(&[2], &[1.0, 1.0]),
+                    tensor(&[2], &[0.0, 0.0]),
+                ]
+            )
+            .is_err()
+        );
+        assert!(
+            call_fn(
+                &Linear,
+                &[
+                    tensor(&[2, 2], &[0.0; 4]),
+                    tensor(&[2, 2], &[1.0, 0.0, 0.0, 1.0]),
+                    tensor(&[4], &[0.0; 4]),
+                ]
             )
             .is_err()
         );

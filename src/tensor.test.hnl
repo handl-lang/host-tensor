@@ -69,6 +69,14 @@ test_reshape := assert tensor.to_list(tensor.reshape(tensor.from_list([[1, 2, 3]
 
 test_transpose := assert tensor.to_list(tensor.transpose(tensor.from_list([[1, 2, 3], [4, 5, 6]]), 0, 1)) = [[1, 4], [2, 5], [3, 6]]
 
+--- select drops the axis: dim 0 index 1 keeps row 1; dim 1 index 0 keeps column 0.
+test_select_row := assert tensor.to_list(tensor.select(tensor.from_list([[1, 2, 3], [4, 5, 6]]), 0, 1)) = [4, 5, 6]
+
+test_select_col := assert tensor.to_list(tensor.select(tensor.from_list([[1, 2, 3], [4, 5, 6]]), 1, 0)) = [1, 4]
+
+--- linear(x, w, b) = x @ wᵀ + b: [[1,2]]·[[1,0],[0,1]]ᵀ + [10,20] = [11,22].
+test_linear := assert tensor.to_list(tensor.linear(tensor.from_list([[1, 2]]), tensor.from_list([[1, 0], [0, 1]]), tensor.from_list([10, 20]))) = [[11, 22]]
+
 --- concat axis 0 stacks, axis 1 appends columns.
 test_concat_axis0 := assert tensor.to_list(tensor.concat([tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6]])], 0)) = [[1, 2], [3, 4], [5, 6]]
 

@@ -50,10 +50,11 @@ pub use codec::{FromList, Ones, Shape, ToList, Zeros};
 pub use conv::{Conv2d, Conv2dBackward, MaxPool, MaxPoolBackward};
 pub use derive::{DERIV_PAIRS, Derive};
 pub use elementwise::{Add, AddBackward, Div, DivBackward, Mul, MulBackward, Sub, SubBackward};
-pub use matmul::{Matmul, MatmulBackward};
+pub use matmul::{Linear, Matmul, MatmulBackward};
 pub use norm::{BatchNorm, BatchNormBackward};
 pub use shape_ops::{
-    Concat, ConcatBackward, Reshape, ReshapeBackward, Transpose, TransposeBackward, Unsqueeze,
+    Concat, ConcatBackward, Reshape, ReshapeBackward, Select, Transpose, TransposeBackward,
+    Unsqueeze,
 };
 
 /// The op names declared in `src/index.hnl`, in declaration order.
@@ -73,6 +74,7 @@ pub const TENSOR_OPS: &[&str] = &[
     "tensor.div_backward",
     "tensor.matmul",
     "tensor.matmul_backward",
+    "tensor.linear",
     "tensor.conv2d",
     "tensor.conv2d_backward",
     "tensor.max_pool",
@@ -83,6 +85,7 @@ pub const TENSOR_OPS: &[&str] = &[
     "tensor.transpose",
     "tensor.transpose_backward",
     "tensor.unsqueeze",
+    "tensor.select",
     "tensor.concat",
     "tensor.concat_backward",
     "tensor.batch_norm_backward",
@@ -112,6 +115,7 @@ pub fn tensor_op_registry() -> OpRegistry {
     registry.register("tensor.div_backward", Arc::new(DivBackward));
     registry.register("tensor.matmul", Arc::new(Matmul));
     registry.register("tensor.matmul_backward", Arc::new(MatmulBackward));
+    registry.register("tensor.linear", Arc::new(Linear));
     registry.register("tensor.conv2d", Arc::new(Conv2d));
     registry.register("tensor.conv2d_backward", Arc::new(Conv2dBackward));
     registry.register("tensor.max_pool", Arc::new(MaxPool));
@@ -122,6 +126,7 @@ pub fn tensor_op_registry() -> OpRegistry {
     registry.register("tensor.transpose", Arc::new(Transpose));
     registry.register("tensor.transpose_backward", Arc::new(TransposeBackward));
     registry.register("tensor.unsqueeze", Arc::new(Unsqueeze));
+    registry.register("tensor.select", Arc::new(Select));
     registry.register("tensor.concat", Arc::new(Concat));
     registry.register("tensor.concat_backward", Arc::new(ConcatBackward));
     registry.register("tensor.batch_norm_backward", Arc::new(BatchNormBackward));

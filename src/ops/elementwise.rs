@@ -59,8 +59,9 @@ fn broadcast_strides(shape: &[usize], out_shape: &[usize]) -> Vec<usize> {
 }
 
 /// The driver behind `tensor.add` / `tensor.mul` / `tensor.sub` /
-/// `tensor.div`: elementwise `f` over the broadcast of `a` and `b`.
-fn broadcast_elementwise(
+/// `tensor.div` (and `tensor.linear`'s bias add): elementwise `f` over
+/// the broadcast of `a` and `b`.
+pub(crate) fn broadcast_elementwise(
     a: &Tensor,
     b: &Tensor,
     op: &str,

@@ -142,6 +142,71 @@ impl Function for Unsqueeze {
     }
 }
 
+/// The Rust handl for `op "tensor.select" : (Tensor * Int * Int) -> Tensor`.
+///
+/// `select(t, dim, index)` removes axis `dim` and keeps only the
+/// `index`-th slice along it — torch's `select`: rank drops by one
+/// (a rank-1 select yields a rank-0 scalar tensor), the payload is the
+/// gathered slice in row-major order. `dim` wraps like `unsqueeze`'s
+/// (`rem_euclid(rank)`); `index` follows torch — negative counts from
+/// the end, and an index outside `[-size, size)` refuses rather than
+/// silently wrapping. No adjoint is registered: the backward is
+/// `select_scatter`/`index_add`-family scatter, undeclared —
+/// `tensor.derive("select")` honestly returns `null`.
+#[derive(Debug, Clone, Copy)]
+pub struct Select;
+impl Function for Select {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        handl_lib_ops::shared::require_arg_count(args, 3)?;
+        let t = require_tensor(args, 0)?;
+        let dim = require_dim(&args[1])?;
+        let index = require_dim(&args[2])?;
+        let rank = t.shape.len() as i64;
+        if rank == 0 {
+            return Err(EvalError::Other(
+                "tensor.select: cannot select an axis of a rank-0 tensor".to_string(),
+            ));
+        }
+        let d = dim.rem_euclid(rank) as usize;
+        let size = t.shape[d] as i64;
+        if !(-size..size).contains(&index) {
+            return Err(EvalError::Other(format!(
+                "tensor.select: index {index} out of range for axis {d} of size {size} ({:?})",
+                t.shape
+            )));
+        }
+        let i = index.rem_euclid(size) as usize;
+        // Kept axes in input order; output axis j reads input axis kept[j].
+        let kept: Vec<usize> = (0..t.shape.len()).filter(|&k| k != d).collect();
+        let out_shape: Vec<usize> = kept.iter().map(|&k| t.shape[k]).collect();
+        let in_strides = row_major_strides(&t.shape);
+        let fixed = i * in_strides[d];
+        let count: usize = out_shape.iter().product();
+        let mut data = Vec::with_capacity(count);
+        let mut idx = vec![0usize; kept.len()];
+        for _ in 0..count {
+            let off: usize = idx
+                .iter()
+                .zip(&kept)
+                .map(|(&c, &k)| c * in_strides[k])
+                .sum::<usize>()
+                + fixed;
+            data.push(t.data[off]);
+            for j in (0..kept.len()).rev() {
+                idx[j] += 1;
+                if idx[j] < out_shape[j] {
+                    break;
+                }
+                idx[j] = 0;
+            }
+        }
+        Ok(encode_tensor(Tensor {
+            shape: out_shape,
+            data,
+        }))
+    }
+}
+
 /// The Rust handl for `op "tensor.concat" : (Array * Int) -> Tensor`.
 ///
 /// `concat(xs, axis)` joins a non-empty list of tensors along `axis`.
@@ -431,6 +496,42 @@ mod tests {
         // non-integer dims refuse.
         assert!(call_fn(&Unsqueeze, &[t.clone(), json!(0.5)]).is_err());
         assert!(call_fn(&Unsqueeze, &[t.clone(), json!("a")]).is_err());
+    }
+
+    #[test]
+    fn select_drops_axis_and_gathers_slice() {
+        // [[1,2,3],[4,5,6]] select dim 0 index 1 → [4,5,6].
+        let t = tensor(&[2, 3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        assert_eq!(
+            call_fn(&Select, &[t.clone(), json!(0), json!(1)]).unwrap(),
+            tensor(&[3], &[4.0, 5.0, 6.0])
+        );
+        // dim 1 index 0 → column 0 as a rank-1 [2].
+        assert_eq!(
+            call_fn(&Select, &[t.clone(), json!(1), json!(0)]).unwrap(),
+            tensor(&[2], &[1.0, 4.0])
+        );
+        // negative dim and index wrap like torch.
+        assert_eq!(
+            call_fn(&Select, &[t.clone(), json!(-1), json!(-1)]).unwrap(),
+            tensor(&[2], &[3.0, 6.0])
+        );
+        // rank-1 → rank-0 scalar.
+        assert_eq!(
+            call_fn(
+                &Select,
+                &[tensor(&[3], &[7.0, 8.0, 9.0]), json!(0), json!(2)]
+            )
+            .unwrap(),
+            tensor(&[], &[9.0])
+        );
+        // out-of-range index refuses; rank-0 has no axis to select.
+        assert!(call_fn(&Select, &[t.clone(), json!(0), json!(2)]).is_err());
+        assert!(call_fn(&Select, &[t.clone(), json!(0), json!(-3)]).is_err());
+        assert!(call_fn(&Select, &[tensor(&[], &[7.0]), json!(0), json!(0)]).is_err());
+        // non-integer args refuse.
+        assert!(call_fn(&Select, &[t.clone(), json!(0.5), json!(0)]).is_err());
+        assert!(call_fn(&Select, &[t.clone(), json!(0), json!("a")]).is_err());
     }
 
     #[test]
