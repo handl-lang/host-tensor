@@ -4,7 +4,7 @@ Host-side tensor functions for handl runtimes — a dense n-d `f64` array
 (row-major) behind the `tensor.*` op surface. Runtimes compose this
 component to give `.hnl` code tensor ops; catopt is the first consumer.
 
-The surface (28 FFI atoms, `src/index.hnl` is the single source of truth):
+The surface (31 FFI atoms, `src/index.hnl` is the single source of truth):
 
 | op | signature | semantics |
 |---|---|---|
@@ -23,11 +23,14 @@ The surface (28 FFI atoms, `src/index.hnl` is the single source of truth):
 | `tensor.div_backward` | `(Tensor * Tensor * Tensor) -> Value` | adjoint of `div`: `da = g/b`, `db = −g·a/b²` |
 | `tensor.matmul` | `(Tensor * Tensor) -> Tensor` | `(m×k)·(k×n)`; rank-3 batches over `B` (broadcast), naive loop |
 | `tensor.matmul_backward` | `(Tensor * Tensor * Tensor) -> Value` | adjoint of `matmul`: `da = g·bᵀ`, `db = aᵀ·g`, unbroadcast over `B` |
+| `tensor.linear` | `(Tensor * Tensor * Tensor) -> Tensor` | F.linear: `x @ wᵀ + b`; `w` is `(out, in)`, `x` rank-2/3 `(*, in)`, `b` the `(out,)` bias; no backward (`derive` → `null`) |
 | `tensor.conv2d` | `Value... -> Tensor` | NCHW cross-correlation `(input, weight, bias?, stride?, padding?, groups?)` |
 | `tensor.conv2d_backward` | `Value... -> Value` | adjoint of `conv2d`: `(input, weight, grad_out, bias?, stride?, padding?, groups?) -> {input, weight, bias?}` |
 | `tensor.max_pool` | `Value... -> Tensor` | NCHW max pooling `(input, kernel, stride?)`; stride defaults to kernel |
 | `tensor.batch_norm` | `Value... -> Tensor` | eval-mode per-channel affine `(input, gamma, beta, mean, var, eps?)` |
 | `tensor.reshape` | `(Tensor * (List Int)) -> Tensor` | re-label under `shape` (product must match) |
+| `tensor.unsqueeze` | `(Tensor * Int) -> Tensor` | insert a size-1 axis at `dim` (negative wraps, torch semantics); no backward (`derive` → `null`) |
+| `tensor.select` | `(Tensor * Int * Int) -> Tensor` | drop axis `dim`, keep the `index`-th slice (rank −1, negative wraps); no backward (`derive` → `null`) |
 | `tensor.transpose` | `(Tensor * Int * Int) -> Tensor` | swap axes `d0`/`d1` |
 | `tensor.concat` | `(Array * Int) -> Tensor` | join a list of same-rank tensors along `axis` |
 | `tensor.batch_norm_backward` | `Value... -> Value` | adjoint of `batch_norm`: primal args + `grad_out` → `{input, gamma, beta}` |
@@ -58,8 +61,12 @@ the composition seam, not BLAS.
 
 **Shape manipulation** — `reshape(t, shape)` keeps the row-major
 payload and requires the new extents' product to equal the element
-count (no `-1` wildcard); `transpose(t, d0, d1)` swaps two axes;
-`concat(xs, axis)` joins a non-empty list of same-rank tensors that
+count (no `-1` wildcard); `unsqueeze(t, dim)` inserts a size-1 axis
+(negative `dim` counts from the end, `d % (rank+1)`);
+`select(t, dim, index)` drops axis `dim` keeping the `index`-th
+slice (negative `dim`/`index` wrap); `transpose(t, d0, d1)` swaps
+two axes; `concat(xs, axis)` joins a non-empty list of same-rank
+tensors that
 agree on every axis but `axis`, whose extents sum — `axis 0` stacks,
 `axis rank−1` appends along the fastest-varying axis.
 
@@ -145,10 +152,10 @@ src/index.hnl          the interface (cap/op/handle declarations)
 src/ops/mod.rs         TENSOR_OPS + tensor_op_registry + the interface drift guard
 src/ops/codec.rs       the wire codec + boundary ops (zeros/ones/from_list/to_list/shape)
 src/ops/elementwise.rs add/mul/sub/div (numpy broadcasting)
-src/ops/matmul.rs      matmul (rank-2/3, batch broadcast)
+src/ops/matmul.rs      matmul (rank-2/3, batch broadcast) + linear
 src/ops/conv.rs        conv2d, max_pool (NCHW)
 src/ops/norm.rs        batch_norm, batch_norm_backward
-src/ops/shape_ops.rs   reshape, transpose, concat
+src/ops/shape_ops.rs   reshape, unsqueeze, select, transpose, concat
 src/ops/derive.rs      derive + DERIV_PAIRS
 src/tensor.test.hnl    .hnl spec tests (host-dependent under `hnl test`)
 pkg.hnl                { modules: ["tensor"] }
