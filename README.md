@@ -181,7 +181,7 @@ Deliberately out of scope so far — the composition seam is the
 point, not BLAS: ~~`tensor.max_pool` and friends (NCHW layout
 params)~~, ~~broadcasting `add`/`mul`/`sub`/`div`~~,
 ~~`reshape`/`transpose`/`concat`~~, ~~batched `matmul`~~,
-~~`tensor.derive`~~ (landed as a registered-pairs table + seven adjoints —
+~~`tensor.derive`~~ (landed as a registered-pairs table + eleven adjoints —
 `.hnl`-function autodiff is the deferred half; see the finding below),
 ~~`TaggedValue::Tensor`~~ (landed — see the finding below), and dtype
 promotion beyond `f64`.
