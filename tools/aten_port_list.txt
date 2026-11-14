@@ -207,24 +207,43 @@ tensor.is_contiguous= aten::is_contiguous
 tensor.avg_pool2d   = aten::avg_pool2d
 
 # --- explicit seams: declared, registered, fail loudly ----------------------
-tensor.einsum       = aten::einsum        # seam: equation parser + opt_einsum
-tensor.tensordot    = aten::tensordot     # seam: dim-list contraction
-tensor.kron         = aten::kron          # seam: kronecker product
-tensor.cross        = aten::cross         # seam: dim-optional vector cross
-tensor.norm         = aten::norm          # seam: p/ord/dim matrix norms
-tensor.renorm       = aten::renorm        # seam: p-norm rescale
-tensor.normalize    = aten::linalg_vector_norm # seam: F.normalize is composite (no aten::normalize)
-tensor.median       = aten::median        # seam: (values,indices) tuple
-tensor.mode         = aten::mode          # seam: mode tuple
-tensor.kthvalue     = aten::kthvalue      # seam: (values,indices) tuple
-tensor.quantile     = aten::quantile      # seam: interpolation modes
-tensor.searchsorted = aten::searchsorted  # seam: sorted-sequence search
-tensor.bincount     = aten::bincount      # seam: int-bucket histogram
-tensor.meshgrid     = aten::meshgrid      # seam: Tensor[] -> Tensor[]
-tensor.corrcoef     = aten::corrcoef       # seam: covariance matrix
-tensor.empty        = aten::empty         # seam: uninitialized fill
-tensor.rand         = aten::rand          # seam: RNG (no Generator on wire)
+tensor.empty        = aten::empty         # seam: uninitialized fill (wire needs concrete values)
+tensor.rand         = aten::rand          # seam: RNG (no Generator on wire; nondeterminism breaks verification)
 tensor.normal       = aten::normal        # seam: RNG
-tensor.to           = aten::to.dtype      # seam: dtype cast — f64 only
 tensor.unique       = aten::_unique       # seam: (values,indices,inverse) tuple; private schema
 tensor.nonzero_dim  = aten::nonzero_static # seam: dim-arg variant, tuple ret
+
+# --- seam closures: handwritten kernels (docs/reports/aten_seam_closure.md) --
+# einsum: `str equation` is a required arg of an unsupported type — the
+# Raw driver reads it from `args` directly; supports explicit/implicit
+# equations, ellipsis batch dims, >=2 operands, naive sum-of-products.
+tensor.einsum       = aten::einsum
+tensor.tensordot    = aten::tensordot
+tensor.kron         = aten::kron
+tensor.cross        = aten::cross
+tensor.norm         = aten::norm.Scalar  # p-norm over all elements; the dim/ord-matrix variants stay uncovered
+tensor.renorm       = aten::renorm
+tensor.normalize    = aten::linalg_vector_norm # F.normalize is composite (no aten::normalize)
+tensor.median       = aten::median        # covers .dim (tuple) too — raw driver dispatches on arity
+tensor.mode         = aten::mode
+tensor.kthvalue     = aten::kthvalue
+tensor.quantile     = aten::quantile      # covers .scalar too — raw driver accepts f64 q
+tensor.searchsorted = aten::searchsorted.Tensor # covers .Scalar too — raw driver accepts numeric self
+tensor.bincount     = aten::bincount
+tensor.meshgrid     = aten::meshgrid      # covers .indexing too (indexing arg ignored — wire is row-major)
+tensor.corrcoef     = aten::corrcoef
+tensor.to           = aten::to.dtype      # dtype cast — f64 identity only; other dtypes/devices error loudly
+
+# --- promotions: trivial coverage by existing kernels -----------------------
+tensor.max          = aten::max           # covers .dim (tuple) and .other too — raw driver dispatches on arity
+tensor.min          = aten::min
+tensor.count_nonzero= aten::count_nonzero # covers .dim_IntList too
+tensor.inner        = aten::inner
+tensor.dist         = aten::dist
+tensor.allclose     = aten::allclose
+tensor.is_nonzero   = aten::is_nonzero
+tensor.msort        = aten::msort
+tensor.nansum       = aten::nansum        # covers .out arg dtype? — unsupported args dropped by decoder
+tensor.nanmean      = aten::nanmean
+tensor.cdist        = aten::cdist
+tensor.pdist        = aten::pdist

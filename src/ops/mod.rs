@@ -267,6 +267,11 @@ pub const TENSOR_OPS: &[&str] = &[
     "tensor.item",
     "tensor.is_contiguous",
     "tensor.avg_pool2d",
+    "tensor.empty",
+    "tensor.rand",
+    "tensor.normal",
+    "tensor.unique",
+    "tensor.nonzero_dim",
     "tensor.einsum",
     "tensor.tensordot",
     "tensor.kron",
@@ -282,12 +287,19 @@ pub const TENSOR_OPS: &[&str] = &[
     "tensor.bincount",
     "tensor.meshgrid",
     "tensor.corrcoef",
-    "tensor.empty",
-    "tensor.rand",
-    "tensor.normal",
     "tensor.to",
-    "tensor.unique",
-    "tensor.nonzero_dim",
+    "tensor.max",
+    "tensor.min",
+    "tensor.count_nonzero",
+    "tensor.inner",
+    "tensor.dist",
+    "tensor.allclose",
+    "tensor.is_nonzero",
+    "tensor.msort",
+    "tensor.nansum",
+    "tensor.nanmean",
+    "tensor.cdist",
+    "tensor.pdist",
 // ATEN-PORT-GEN:END ops
 ];
 
@@ -505,6 +517,11 @@ pub fn tensor_op_registry() -> OpRegistry {
     registry.register("tensor.item", Arc::new(aten_generated::Item));
     registry.register("tensor.is_contiguous", Arc::new(aten_generated::IsContiguous));
     registry.register("tensor.avg_pool2d", Arc::new(aten_generated::AvgPool2d));
+    registry.register("tensor.empty", Arc::new(aten_generated::Empty));
+    registry.register("tensor.rand", Arc::new(aten_generated::Rand));
+    registry.register("tensor.normal", Arc::new(aten_generated::Normal));
+    registry.register("tensor.unique", Arc::new(aten_generated::Unique));
+    registry.register("tensor.nonzero_dim", Arc::new(aten_generated::NonzeroDim));
     registry.register("tensor.einsum", Arc::new(aten_generated::Einsum));
     registry.register("tensor.tensordot", Arc::new(aten_generated::Tensordot));
     registry.register("tensor.kron", Arc::new(aten_generated::Kron));
@@ -520,12 +537,19 @@ pub fn tensor_op_registry() -> OpRegistry {
     registry.register("tensor.bincount", Arc::new(aten_generated::Bincount));
     registry.register("tensor.meshgrid", Arc::new(aten_generated::Meshgrid));
     registry.register("tensor.corrcoef", Arc::new(aten_generated::Corrcoef));
-    registry.register("tensor.empty", Arc::new(aten_generated::Empty));
-    registry.register("tensor.rand", Arc::new(aten_generated::Rand));
-    registry.register("tensor.normal", Arc::new(aten_generated::Normal));
     registry.register("tensor.to", Arc::new(aten_generated::To));
-    registry.register("tensor.unique", Arc::new(aten_generated::Unique));
-    registry.register("tensor.nonzero_dim", Arc::new(aten_generated::NonzeroDim));
+    registry.register("tensor.max", Arc::new(aten_generated::Max));
+    registry.register("tensor.min", Arc::new(aten_generated::Min));
+    registry.register("tensor.count_nonzero", Arc::new(aten_generated::CountNonzero));
+    registry.register("tensor.inner", Arc::new(aten_generated::Inner));
+    registry.register("tensor.dist", Arc::new(aten_generated::Dist));
+    registry.register("tensor.allclose", Arc::new(aten_generated::Allclose));
+    registry.register("tensor.is_nonzero", Arc::new(aten_generated::IsNonzero));
+    registry.register("tensor.msort", Arc::new(aten_generated::Msort));
+    registry.register("tensor.nansum", Arc::new(aten_generated::Nansum));
+    registry.register("tensor.nanmean", Arc::new(aten_generated::Nanmean));
+    registry.register("tensor.cdist", Arc::new(aten_generated::Cdist));
+    registry.register("tensor.pdist", Arc::new(aten_generated::Pdist));
 // ATEN-PORT-GEN:END registry
     registry
 }
@@ -715,7 +739,76 @@ mod tests {
         let out = call_fn(&aten_generated::Arange, &[json!(0), json!(5), json!(2)]).unwrap();
         assert_eq!(out, tensor(&[3], &[0.0, 2.0, 4.0]));
 
-        // A declared seam fails loudly rather than faking behavior.
-        assert!(call_fn(&aten_generated::Einsum, &[]).is_err());
+        // Seam closures: `einsum` matmul through the raw driver
+        // (equation string + Tensor[] arg).
+        let out = call_fn(
+            &aten_generated::Einsum,
+            &[
+                json!("ij,jk->ik"),
+                json!([
+                    tensor(&[1, 2], &[3.0, 4.0]),
+                    tensor(&[2, 1], &[5.0, 6.0]),
+                ]),
+            ],
+        )
+        .unwrap();
+        assert_eq!(out, tensor(&[1, 1], &[39.0]));
+
+        // `tensordot` contracting the shared dim.
+        let out = call_fn(
+            &aten_generated::Tensordot,
+            &[
+                tensor(&[2, 3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]),
+                tensor(&[3, 2], &[7.0, 8.0, 9.0, 10.0, 11.0, 12.0]),
+                json!([1]),
+                json!([0]),
+            ],
+        )
+        .unwrap();
+        assert_eq!(out, tensor(&[2, 2], &[58.0, 64.0, 139.0, 154.0]));
+
+        // `to` — f64 dtype is the identity; float32 must fail loudly.
+        let out = call_fn(
+            &aten_generated::To,
+            &[tensor(&[2], &[1.0, 2.0]), json!("float64")],
+        )
+        .unwrap();
+        assert_eq!(out, tensor(&[2], &[1.0, 2.0]));
+        assert!(call_fn(
+            &aten_generated::To,
+            &[tensor(&[2], &[1.0, 2.0]), json!("float32")],
+        )
+        .is_err());
+
+        // `meshgrid` → JSON array of wire tensors.
+        let out = call_fn(
+            &aten_generated::Meshgrid,
+            &[json!([
+                tensor(&[2], &[1.0, 2.0]),
+                tensor(&[2], &[10.0, 20.0]),
+            ])],
+        )
+        .unwrap();
+        assert_eq!(out.as_array().unwrap().len(), 2);
+        assert_eq!(out[0], tensor(&[2, 2], &[1.0, 1.0, 2.0, 2.0]));
+        assert_eq!(out[1], tensor(&[2, 2], &[10.0, 20.0, 10.0, 20.0]));
+
+        // `max.dim` → {values, indices} record.
+        let out = call_fn(
+            &aten_generated::Max,
+            &[tensor(&[2], &[1.0, 5.0]), json!(0), json!(false)],
+        )
+        .unwrap();
+        assert_eq!(out["values"], tensor(&[], &[5.0]));
+        assert_eq!(out["indices"], tensor(&[], &[1.0]));
+
+        // Declared seams still fail loudly rather than faking behavior:
+        // RNG (nondeterminism), uninitialized fill, and the tuple/private
+        // variants we did not close.
+        assert!(call_fn(&aten_generated::Rand, &[json!([2])]).is_err());
+        assert!(call_fn(&aten_generated::Normal, &[json!(0.0), json!(1.0), json!([2])]).is_err());
+        assert!(call_fn(&aten_generated::Empty, &[json!([2])]).is_err());
+        assert!(call_fn(&aten_generated::Unique, &[tensor(&[2], &[1.0, 1.0])]).is_err());
+        assert!(call_fn(&aten_generated::NonzeroDim, &[tensor(&[2], &[0.0, 1.0])]).is_err());
     }
 }

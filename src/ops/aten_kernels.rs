@@ -3075,6 +3075,1427 @@ pub(crate) fn drv_avg_pool2d(args: &[serde_json::Value]) -> Result<serde_json::V
 /// `var`/`std` raw driver is `k_var_std` (already raw).
 
 // ---------------------------------------------------------------------------
+// Seam closures — handwritten kernels for formerly-declared `# seam` ops
+// and a few trivially-supported promotions. Same conventions as above:
+// decoded args in, `Result<Tensor>`/`Result<Value>` out; multi-return
+// ATen tuples encode as `{"values","indices"}` records, tensor lists as
+// JSON arrays of wire tensors.
+// ---------------------------------------------------------------------------
+
+/// `ord`-norm of `t` over `dims` (`None` → all axes; `Some([])` →
+/// identity). `keepdim` retains size-1 reduced axes. `ord == 0` counts
+/// nonzeros; `±inf` → max/min `|x|`; finite `p` → `(Σ|x|^p)^(1/p)`.
+fn p_norm(t: &Tensor, dims: Option<&[i64]>, ord: f64, keepdim: bool) -> Result<Tensor, EvalError> {
+    let dv = dims.map(|d| d.to_vec());
+    if ord == f64::INFINITY {
+        let a = map_unary(t, f64::abs);
+        return reduce_amax(&a, dv, keepdim);
+    }
+    if ord == f64::NEG_INFINITY {
+        let a = map_unary(t, f64::abs);
+        return reduce_amin(&a, dv, keepdim);
+    }
+    if ord == 0.0 {
+        let mask = map_unary(t, |x| if x != 0.0 { 1.0 } else { 0.0 });
+        return reduce_sum(&mask, dv, keepdim);
+    }
+    let a = map_unary(t, |x| x.abs().powf(ord));
+    let s = reduce_sum(&a, dv, keepdim)?;
+    Ok(map_unary(&s, |x| x.powf(1.0 / ord)))
+}
+
+/// `norm` — `aten::norm.Scalar(self, p=2)`: p-norm over ALL elements →
+/// rank-0 tensor.
+pub(crate) fn k_norm(t: &Tensor, p: f64) -> Result<Tensor, EvalError> {
+    p_norm(t, None, p, false)
+}
+
+/// `renorm` — `aten::renorm(self, p, dim, maxnorm)`: scale each slice
+/// along `dim` by `min(1, maxnorm/‖·‖_p)`. A zero norm leaves the slice
+/// unchanged (the `maxnorm/0 → inf/NaN → min → 1` path handles it).
+pub(crate) fn k_renorm(t: &Tensor, p: f64, dim: i64, maxnorm: f64) -> Result<Tensor, EvalError> {
+    let n = p_norm(t, Some(&[dim]), p, true)?;
+    let full = broadcast_to(&n, &t.shape, "renorm")?;
+    Ok(Tensor {
+        shape: t.shape.clone(),
+        data: t
+            .data
+            .iter()
+            .zip(&full.data)
+            .map(|(&x, &nv)| x * (maxnorm / nv).min(1.0))
+            .collect(),
+    })
+}
+
+/// `normalize` — the `F.normalize` composite over the pinned
+/// `aten::linalg_vector_norm` schema: `x / max(‖x‖_ord(dim), eps)` with
+/// `eps = 1e-12` (F.normalize's default). The output shape is always
+/// `t.shape`; `keepdim` only shaped the internal norm and is accepted
+/// for schema compatibility. `dim=None` norms over ALL axes.
+pub(crate) fn k_normalize(
+    t: &Tensor,
+    ord: f64,
+    dims: Option<&[i64]>,
+    _keepdim: bool,
+) -> Result<Tensor, EvalError> {
+    const EPS: f64 = 1e-12;
+    let n = p_norm(t, dims, ord, true)?;
+    let full = broadcast_to(&n, &t.shape, "normalize")?;
+    Ok(Tensor {
+        shape: t.shape.clone(),
+        data: t
+            .data
+            .iter()
+            .zip(&full.data)
+            .map(|(&x, &nv)| {
+                let d = if nv.is_nan() { f64::NAN } else { nv.max(EPS) };
+                x / d
+            })
+            .collect(),
+    })
+}
+
+/// `cross` — `aten::cross(self, other, dim=None)`. `dim=None` uses dim 0
+/// for rank-1 operands and errors for higher rank (torch infers "first
+/// dim of size 3"; we don't guess). Operands must have equal shapes.
+pub(crate) fn k_cross(a: &Tensor, b: &Tensor, dim: Option<i64>) -> Result<Tensor, EvalError> {
+    if a.shape != b.shape {
+        return Err(op_err(
+            "cross",
+            format!("shape mismatch {:?} vs {:?}", a.shape, b.shape),
+        ));
+    }
+    let d = match dim {
+        Some(d) => wrap_dim(d, a.shape.len(), "cross")?,
+        None => {
+            if a.shape.len() == 1 {
+                0
+            } else {
+                return Err(op_err("cross", "dim required for rank>1 operands"));
+            }
+        }
+    };
+    if a.shape[d] != 3 {
+        return Err(op_err(
+            "cross",
+            format!("cross dim extent {} != 3", a.shape[d]),
+        ));
+    }
+    let inner: usize = a.shape[d + 1..].iter().product();
+    let outer: usize = a.shape[..d].iter().product();
+    let mut data = vec![0.0; a.data.len()];
+    for o in 0..outer {
+        for j in 0..inner {
+            let at = |_t: &Tensor, i: usize| (o * 3 + i) * inner + j;
+            let (a0, a1, a2) = (a.data[at(a, 0)], a.data[at(a, 1)], a.data[at(a, 2)]);
+            let (b0, b1, b2) = (b.data[at(b, 0)], b.data[at(b, 1)], b.data[at(b, 2)]);
+            data[at(a, 0)] = a1 * b2 - a2 * b1;
+            data[at(a, 1)] = a2 * b0 - a0 * b2;
+            data[at(a, 2)] = a0 * b1 - a1 * b0;
+        }
+    }
+    Ok(Tensor {
+        shape: a.shape.clone(),
+        data,
+    })
+}
+
+/// `tensordot` — `aten::tensordot(self, other, dims_self, dims_other)`:
+/// contract the listed axes pairwise; result dims are a's free dims (in
+/// order) followed by b's free dims. Empty contract lists give the outer
+/// product (handled uniformly — the contract extent is then 1).
+pub(crate) fn k_tensordot(
+    a: &Tensor,
+    b: &Tensor,
+    dims_self: &[i64],
+    dims_other: &[i64],
+) -> Result<Tensor, EvalError> {
+    if dims_self.len() != dims_other.len() {
+        return Err(op_err(
+            "tensordot",
+            format!(
+                "contract count mismatch {} vs {}",
+                dims_self.len(),
+                dims_other.len()
+            ),
+        ));
+    }
+    let (ra, rb) = (a.shape.len(), b.shape.len());
+    let mut ca = Vec::with_capacity(dims_self.len());
+    let mut cb = Vec::with_capacity(dims_other.len());
+    for (&x, &y) in dims_self.iter().zip(dims_other) {
+        let da = wrap_dim(x, ra, "tensordot")?;
+        let db = wrap_dim(y, rb, "tensordot")?;
+        if ca.contains(&da) || cb.contains(&db) {
+            return Err(op_err("tensordot", "duplicate contract dim"));
+        }
+        if a.shape[da] != b.shape[db] {
+            return Err(op_err(
+                "tensordot",
+                format!("contract size mismatch {} vs {}", a.shape[da], b.shape[db]),
+            ));
+        }
+        ca.push(da);
+        cb.push(db);
+    }
+    let free_a: Vec<usize> = (0..ra).filter(|d| !ca.contains(d)).collect();
+    let free_b: Vec<usize> = (0..rb).filter(|d| !cb.contains(d)).collect();
+    let mut out_shape: Vec<usize> = free_a.iter().map(|&d| a.shape[d]).collect();
+    out_shape.extend(free_b.iter().map(|&d| b.shape[d]));
+    let na: usize = free_a.iter().map(|&d| a.shape[d]).product();
+    let nb: usize = free_b.iter().map(|&d| b.shape[d]).product();
+    let k: usize = ca.iter().map(|&d| a.shape[d]).product();
+    // permute → [free…, contract…] / [contract…, free…], reshape, mm.
+    let perm_a: Vec<usize> = free_a.iter().chain(&ca).copied().collect();
+    let perm_b: Vec<usize> = cb.iter().chain(&free_b).copied().collect();
+    let a2 = reshape_like(&permute_dims(a, &perm_a, "tensordot")?, &[na, k], "tensordot")?;
+    let b2 = reshape_like(&permute_dims(b, &perm_b, "tensordot")?, &[k, nb], "tensordot")?;
+    let c = mm2(&a2, &b2, "tensordot")?;
+    reshape_like(&c, &out_shape, "tensordot")
+}
+
+/// `kron` — `aten::kron(self, other)`: same-rank operands; per axis the
+/// output extent is `a[d]*b[d]` and `out[…, o_d, …] =
+/// a[…, o_d/b_d, …] * b[…, o_d%b_d, …]`.
+pub(crate) fn k_kron(a: &Tensor, b: &Tensor) -> Result<Tensor, EvalError> {
+    if a.shape.len() != b.shape.len() {
+        return Err(op_err(
+            "kron",
+            format!("rank mismatch {:?} vs {:?}", a.shape, b.shape),
+        ));
+    }
+    let rank = a.shape.len();
+    let out_shape: Vec<usize> = a.shape.iter().zip(&b.shape).map(|(&x, &y)| x * y).collect();
+    let sa = row_major_strides(&a.shape);
+    let sb = row_major_strides(&b.shape);
+    let count: usize = out_shape.iter().product();
+    let mut data = Vec::with_capacity(count);
+    let mut idx = vec![0usize; rank];
+    for _ in 0..count {
+        let (mut ia, mut ib) = (0usize, 0usize);
+        for d in 0..rank {
+            ia += (idx[d] / b.shape[d]) * sa[d];
+            ib += (idx[d] % b.shape[d]) * sb[d];
+        }
+        data.push(a.data[ia] * b.data[ib]);
+        for d in (0..rank).rev() {
+            idx[d] += 1;
+            if idx[d] < out_shape[d] {
+                break;
+            }
+            idx[d] = 0;
+        }
+    }
+    Ok(Tensor {
+        shape: out_shape,
+        data,
+    })
+}
+
+/// `bincount` — `aten::bincount(self, weights?, minlength=0)`: histogram
+/// of non-negative integer-valued entries; `weights` (same numel)
+/// multiplies each count.
+pub(crate) fn k_bincount(
+    t: &Tensor,
+    weights: Option<&Tensor>,
+    minlength: i64,
+) -> Result<Tensor, EvalError> {
+    if let Some(w) = weights {
+        if w.data.len() != t.data.len() {
+            return Err(op_err("bincount", "weights numel mismatch"));
+        }
+    }
+    let mut max_i = -1i64;
+    for &x in &t.data {
+        if !x.is_finite() || x < 0.0 || x.fract() != 0.0 {
+            return Err(op_err(
+                "bincount",
+                format!("input must be non-negative integers, got {x}"),
+            ));
+        }
+        let i = x as i64;
+        if i > 100_000_000 {
+            return Err(op_err("bincount", format!("index {i} too large")));
+        }
+        max_i = max_i.max(i);
+    }
+    let min = usize::try_from(minlength).map_err(|_| op_err("bincount", "negative minlength"))?;
+    let n = (max_i.max(0) as usize + 1).max(min);
+    let mut data = vec![0.0; n];
+    for (k, &x) in t.data.iter().enumerate() {
+        data[x as usize] += weights.map_or(1.0, |w| w.data[k]);
+    }
+    Ok(Tensor {
+        shape: vec![n],
+        data,
+    })
+}
+
+/// `corrcoef` — `aten::corrcoef(self)`: rowvar semantics — each ROW is a
+/// variable, columns are observations. Rank-1 input is a single variable
+/// → rank-0 self-correlation (1.0, or NaN for a constant/empty input).
+pub(crate) fn k_corrcoef(t: &Tensor) -> Result<Tensor, EvalError> {
+    match t.shape.len() {
+        1 => {
+            let n = t.shape[0] as f64;
+            if n < 2.0 {
+                return Ok(Tensor {
+                    shape: vec![],
+                    data: vec![f64::NAN],
+                });
+            }
+            let mean = t.data.iter().sum::<f64>() / n;
+            let var = t
+                .data
+                .iter()
+                .map(|&x| (x - mean).powi(2))
+                .sum::<f64>()
+                / (n - 1.0);
+            Ok(Tensor {
+                shape: vec![],
+                data: vec![if var > 0.0 { 1.0 } else { f64::NAN }],
+            })
+        }
+        2 => {
+            let (m, n) = (t.shape[0], t.shape[1]);
+            // Center each row, then cov = Xc·Xcᵀ/(n−1), corr = cov/√(diag⊗diag).
+            let mut xc = t.data.clone();
+            for i in 0..m {
+                let mean = xc[i * n..(i + 1) * n].iter().sum::<f64>() / n as f64;
+                for v in &mut xc[i * n..(i + 1) * n] {
+                    *v -= mean;
+                }
+            }
+            let denom = (n as f64 - 1.0).max(f64::MIN_POSITIVE);
+            let mut cov = vec![0.0; m * m];
+            for i in 0..m {
+                for j in 0..=i {
+                    let s: f64 = (0..n).map(|k| xc[i * n + k] * xc[j * n + k]).sum();
+                    cov[i * m + j] = s / denom;
+                    cov[j * m + i] = s / denom;
+                }
+            }
+            for i in 0..m {
+                for j in 0..m {
+                    let d = (cov[i * m + i] * cov[j * m + j]).sqrt();
+                    cov[i * m + j] = if d == 0.0 { f64::NAN } else { cov[i * m + j] / d };
+                }
+            }
+            Ok(Tensor {
+                shape: vec![m, m],
+                data: cov,
+            })
+        }
+        r => Err(op_err("corrcoef", format!("expected rank 1 or 2, got {r}"))),
+    }
+}
+
+/// `to.dtype` — dtype cast. The wire is f64-dense, so float64-family
+/// requests (`"float64"`/`"double"`/`"f64"`) are the identity; every
+/// other dtype name errors loudly rather than silently degrading
+/// precision. A tensor rhs (`aten::to.other`-style) is a same-dtype
+/// copy → clone. `non_blocking`/`copy`/`memory_format` are accepted and
+/// ignored (immutable wire — a fresh encoded tensor is always returned).
+pub(crate) fn k_to(args: &[serde_json::Value]) -> Result<serde_json::Value, EvalError> {
+    use super::codec::require_tensor;
+    let t = require_tensor(args, 0)?;
+    let spec = args
+        .get(1)
+        .ok_or_else(|| op_err("to", "missing dtype argument"))?;
+    match spec {
+        Value::String(s) => match s.to_ascii_lowercase().as_str() {
+            "float64" | "double" | "f64" => Ok(enc(t)),
+            other => Err(op_err(
+                "to",
+                format!("unsupported dtype {other:?} — the surface is f64 dense"),
+            )),
+        },
+        v if v.get("__tensor__").is_some() => Ok(enc(t)),
+        _ => Err(op_err(
+            "to",
+            "dtype must be a string (e.g. \"float64\") or a tensor",
+        )),
+    }
+}
+
+/// Take position `pos` along axis `d`, dropping the axis; `keepdim`
+/// reinserts it as size-1 (identical flat layout).
+fn select_dim_index(
+    t: &Tensor,
+    d: usize,
+    pos: usize,
+    keepdim: bool,
+    op: &str,
+) -> Result<Tensor, EvalError> {
+    let w = t.shape[d];
+    if pos >= w {
+        return Err(op_err(op, format!("index {pos} out of range for extent {w}")));
+    }
+    let tail: usize = t.shape[d + 1..].iter().product();
+    let outer: usize = t.shape[..d].iter().product();
+    let mut data = Vec::with_capacity(t.data.len() / w.max(1));
+    for o in 0..outer {
+        for j in 0..tail {
+            data.push(t.data[(o * w + pos) * tail + j]);
+        }
+    }
+    let mut shape: Vec<usize> = t
+        .shape
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != d)
+        .map(|(_, &s)| s)
+        .collect();
+    if keepdim {
+        shape.insert(d, 1);
+    }
+    Ok(Tensor { shape, data })
+}
+
+/// `median` — `aten::median(self)` scalar form: the LOWER median of the
+/// flattened tensor (torch returns an element, never the mean of the two
+/// middle values) → rank-0. The `median.dim` sibling `(self, dim,
+/// keepdim)` → `{values, indices}` is covered by the same raw driver
+/// (k_max_min-style merged overload).
+pub(crate) fn k_median(args: &[serde_json::Value]) -> Result<serde_json::Value, EvalError> {
+    use super::codec::require_tensor;
+    let a = require_tensor(args, 0)?;
+    match args.get(1) {
+        None => {
+            if a.data.is_empty() {
+                return Err(op_err("median", "empty tensor"));
+            }
+            let mut v = a.data.clone();
+            v.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+            Ok(enc(Tensor {
+                shape: vec![],
+                data: vec![v[(v.len() - 1) / 2]],
+            }))
+        }
+        Some(v) => {
+            let dim = req_i64(v)?;
+            let keepdim = opt_bool(args.get(2), false)?;
+            let d = wrap_dim(dim, a.shape.len(), "median")?;
+            let w = a.shape[d];
+            if w == 0 {
+                return Err(op_err("median", "empty dim"));
+            }
+            let pos = (w - 1) / 2; // lower median position in sorted order
+            let (vals, idxs) = sort_dim(&a, dim, false, "median")?;
+            let mv = select_dim_index(&vals, d, pos, keepdim, "median")?;
+            let mi = select_dim_index(&idxs, d, pos, keepdim, "median")?;
+            Ok(json!({ "values": enc(mv), "indices": enc(mi) }))
+        }
+    }
+}
+
+/// `mode` — `aten::mode(self, dim=-1, keepdim=False)` →
+/// `{values, indices}`: the most frequent value along `dim` and its
+/// first-occurrence index. Ties break to the smallest first-occurrence
+/// position (documented choice — torch's tie rule is version-dependent).
+pub(crate) fn k_mode(t: &Tensor, dim: i64, keepdim: bool) -> Result<serde_json::Value, EvalError> {
+    let d = wrap_dim(dim, t.shape.len(), "mode")?;
+    let w = t.shape[d];
+    if w == 0 {
+        return Err(op_err("mode", "empty dim"));
+    }
+    let tail: usize = t.shape[d + 1..].iter().product();
+    let outer: usize = t.shape[..d].iter().product();
+    let kept: Vec<usize> = t
+        .shape
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != d)
+        .map(|(_, &s)| s)
+        .collect();
+    let mut vshape = kept.clone();
+    if keepdim {
+        vshape.insert(d, 1);
+    }
+    let n_out = t.data.len() / w;
+    let mut vdata = vec![0.0; n_out];
+    let mut idata = vec![0.0; n_out];
+    for o in 0..outer {
+        for j in 0..tail {
+            let mut items: Vec<(f64, usize)> = (0..w)
+                .map(|i| (t.data[(o * w + i) * tail + j], i))
+                .collect();
+            items.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+            let (mut bv, mut bi, mut bc) = (0.0f64, usize::MAX, 0usize);
+            let mut p = 0usize;
+            while p < items.len() {
+                let mut q = p + 1;
+                while q < items.len() && items[q].0 == items[p].0 {
+                    q += 1;
+                }
+                let count = q - p;
+                let first = items[p..q].iter().map(|&(_, i)| i).min().unwrap();
+                if count > bc || (count == bc && first < bi) {
+                    bc = count;
+                    bv = items[p].0;
+                    bi = first;
+                }
+                p = q;
+            }
+            let at = o * tail + j;
+            vdata[at] = bv;
+            idata[at] = bi as f64;
+        }
+    }
+    Ok(json!({
+        "values": enc(Tensor { shape: vshape.clone(), data: vdata }),
+        "indices": enc(Tensor { shape: vshape, data: idata }),
+    }))
+}
+
+/// `kthvalue` — `aten::kthvalue(self, k, dim=-1, keepdim=False)` →
+/// `{values, indices}`: the k-th smallest (1-based) along `dim`, via the
+/// same stable sort `sort`/`topk` use.
+pub(crate) fn k_kthvalue(
+    t: &Tensor,
+    k: i64,
+    dim: i64,
+    keepdim: bool,
+) -> Result<serde_json::Value, EvalError> {
+    let d = wrap_dim(dim, t.shape.len(), "kthvalue")?;
+    let w = t.shape[d];
+    if k < 1 || k as usize > w {
+        return Err(op_err("kthvalue", format!("k={k} out of range [1, {w}]")));
+    }
+    let pos = (k - 1) as usize;
+    let (vals, idxs) = sort_dim(t, dim, false, "kthvalue")?;
+    let v = select_dim_index(&vals, d, pos, keepdim, "kthvalue")?;
+    let i = select_dim_index(&idxs, d, pos, keepdim, "kthvalue")?;
+    Ok(json!({ "values": enc(v), "indices": enc(i) }))
+}
+
+/// `meshgrid` — `aten::meshgrid(Tensor[])` with ij indexing: rank-1
+/// inputs of lengths `L_i` produce `n` outputs of shape `[L_1..L_n]`
+/// where output `i` varies along axis `i`. Rank>1 inputs error loudly
+/// (the N-D broadcasting rules are a documented subset boundary).
+pub(crate) fn k_meshgrid(ts: &[Tensor]) -> Result<serde_json::Value, EvalError> {
+    if ts.is_empty() {
+        return Err(op_err("meshgrid", "empty tensor list"));
+    }
+    let n = ts.len();
+    for t in ts {
+        if t.shape.len() != 1 {
+            return Err(op_err(
+                "meshgrid",
+                format!("only rank-1 inputs supported, got shape {:?}", t.shape),
+            ));
+        }
+    }
+    let out_shape: Vec<usize> = ts.iter().map(|t| t.shape[0]).collect();
+    let count: usize = out_shape.iter().product();
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        let mut data = Vec::with_capacity(count);
+        let mut idx = vec![0usize; n];
+        for _ in 0..count {
+            data.push(ts[i].data[idx[i]]);
+            for d in (0..n).rev() {
+                idx[d] += 1;
+                if idx[d] < out_shape[d] {
+                    break;
+                }
+                idx[d] = 0;
+            }
+        }
+        out.push(enc(Tensor {
+            shape: out_shape.clone(),
+            data,
+        }));
+    }
+    Ok(Value::Array(out))
+}
+
+// ---------------------------------------------------------------------------
+// einsum — the equation parser + general contraction engine
+// ---------------------------------------------------------------------------
+
+/// One parsed operand/output subscript. Without `...`, `labels` binds
+/// dims in order; with `...`, `left` labels bind the leading dims,
+/// `right` labels the trailing dims, and the middle `rank-l-r` dims are
+/// the broadcast (ellipsis) dims.
+struct EinsumSub {
+    left: Vec<char>,
+    right: Vec<char>,
+    ell: bool,
+}
+
+fn parse_einsum_sub(s: &str) -> Result<EinsumSub, EvalError> {
+    let bad = |c: char| !(c.is_ascii_alphanumeric() || c == '_');
+    if let Some((pre, post)) = s.split_once("...") {
+        let left: Vec<char> = pre.chars().filter(|c| !c.is_whitespace()).collect();
+        let right: Vec<char> = post.chars().filter(|c| !c.is_whitespace()).collect();
+        for &c in left.iter().chain(&right) {
+            if bad(c) {
+                return Err(op_err("einsum", format!("bad label {c:?} in {s:?}")));
+            }
+        }
+        Ok(EinsumSub { left, right, ell: true })
+    } else {
+        let labs: Vec<char> = s.chars().filter(|c| !c.is_whitespace()).collect();
+        for &c in &labs {
+            if bad(c) {
+                return Err(op_err("einsum", format!("bad label {c:?} in {s:?}")));
+            }
+        }
+        Ok(EinsumSub {
+            left: labs,
+            right: Vec::new(),
+            ell: false,
+        })
+    }
+}
+
+/// Per-operand axis classification: a labeled dim or an ellipsis (batch)
+/// dim — `Bat(j)` is the j-th of THIS operand's ellipsis dims, mapped to
+/// a global batch axis once `batch_shape` is known.
+enum EAxis {
+    Lab(usize),
+    Bat(usize),
+}
+
+struct EOperand {
+    t: Tensor,
+    axes: Vec<EAxis>,
+    /// This operand's ellipsis dim count (for the local→global map).
+    e: usize,
+}
+
+/// `einsum` — `aten::einsum(str equation, Tensor[] tensors, *, path?)`.
+///
+/// Grammar: `lhs->rhs` comma-separated operand subscripts; `->` may be
+/// omitted (numpy convention: broadcast ellipsis dims first, then the
+/// labels appearing exactly once in alphabetical order). `...` broadcasts
+/// leading/middle/trailing unlabeled dims;
+/// ellipsis dims are kept iff `...` appears in the output subscript,
+/// otherwise summed with the contracted labels. A label repeated inside
+/// one operand is rejected (no diagonal extraction). `path` is an
+/// opt_einsum contraction-order hint — ignored, semantics unchanged.
+/// Execution is the direct sum-of-products engine: for each output
+/// index, sum over every contracted-index combination of the operand
+/// product — O(out·contract·Σrank), the same naive-f64 spirit as the
+/// rest of this file.
+pub(crate) fn k_einsum(args: &[serde_json::Value]) -> Result<serde_json::Value, EvalError> {
+    use std::collections::HashMap;
+    let eq = args
+        .get(0)
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| op_err("einsum", "equation must be a string"))?;
+    let ts = req_tensors(arg_at(args, 1)?)?;
+    let (lhs, rhs, has_arrow) = match eq.split_once("->") {
+        Some((a, b)) => (a, b, true),
+        None => (eq, "", false),
+    };
+    let subs: Vec<&str> = lhs.split(',').map(str::trim).collect();
+    if subs.len() != ts.len() {
+        return Err(op_err(
+            "einsum",
+            format!("equation has {} operands but {} tensors", subs.len(), ts.len()),
+        ));
+    }
+
+    // Label table: char → id, with sizes recorded from operand dims.
+    let mut label_id: HashMap<char, usize> = HashMap::new();
+    let mut label_size: Vec<Option<usize>> = Vec::new();
+    let mut label_chars: Vec<char> = Vec::new();
+    let mut operands: Vec<EOperand> = Vec::with_capacity(ts.len());
+    let mut batch_dims: Vec<Vec<usize>> = Vec::with_capacity(ts.len());
+    let mut first_seen: Vec<usize> = Vec::new(); // label ids in first-appearance order
+
+    for (sub_s, t) in subs.iter().zip(&ts) {
+        let sub = parse_einsum_sub(sub_s)?;
+        let r = t.shape.len();
+        let mut axes = Vec::with_capacity(r);
+        let mut local_labels: Vec<char> = Vec::new();
+        if sub.ell {
+            let lb = sub.left.len();
+            let la = sub.right.len();
+            if lb + la > r {
+                return Err(op_err(
+                    "einsum",
+                    format!("subscript {sub_s:?} has {} labels for rank-{r} tensor", lb + la),
+                ));
+            }
+            let e = r - lb - la;
+            // dims [0,lb) → left labels; [r-la,r) → right labels; middle → batch.
+            for d in 0..r {
+                let c = if d < lb {
+                    Some(sub.left[d])
+                } else if d >= r - la {
+                    Some(sub.right[d - (r - la)])
+                } else {
+                    None
+                };
+                match c {
+                    Some(ch) => {
+                        let id = *label_id.entry(ch).or_insert_with(|| {
+                            label_size.push(None);
+                            label_chars.push(ch);
+                            first_seen.push(label_size.len() - 1);
+                            label_size.len() - 1
+                        });
+                        let sz = t.shape[d];
+                        match label_size[id] {
+                            None => label_size[id] = Some(sz),
+                            Some(s) if s != sz => {
+                                return Err(op_err(
+                                    "einsum",
+                                    format!("label {ch:?} size mismatch {s} vs {sz}"),
+                                ));
+                            }
+                            _ => {}
+                        }
+                        axes.push(EAxis::Lab(id));
+                        local_labels.push(ch);
+                    }
+                    None => axes.push(EAxis::Bat(d - lb)),
+                }
+            }
+            batch_dims.push(t.shape[lb..r - la].to_vec());
+            operands.push(EOperand { t: t.clone(), axes, e });
+        } else {
+            let labs = &sub.left; // no ellipsis → all labels in `left`
+            if labs.len() != r {
+                return Err(op_err(
+                    "einsum",
+                    format!("subscript {sub_s:?} has {} labels for rank-{r} tensor", labs.len()),
+                ));
+            }
+            for (d, &ch) in labs.iter().enumerate() {
+                if local_labels.contains(&ch) {
+                    return Err(op_err("einsum", format!("repeated label {ch:?} in {sub_s:?}")));
+                }
+                let id = *label_id.entry(ch).or_insert_with(|| {
+                    label_size.push(None);
+                    label_chars.push(ch);
+                    first_seen.push(label_size.len() - 1);
+                    label_size.len() - 1
+                });
+                let sz = t.shape[d];
+                match label_size[id] {
+                    None => label_size[id] = Some(sz),
+                    Some(s) if s != sz => {
+                        return Err(op_err(
+                            "einsum",
+                            format!("label {ch:?} size mismatch {s} vs {sz}"),
+                        ));
+                    }
+                    _ => {}
+                }
+                axes.push(EAxis::Lab(id));
+                local_labels.push(ch);
+            }
+            batch_dims.push(Vec::new());
+            operands.push(EOperand { t: t.clone(), axes, e: 0 });
+        }
+    }
+
+    // A label repeated inside ONE operand is diagonal extraction —
+    // outside this engine's grammar; reject it for both branches.
+    for op in &operands {
+        let mut seen = std::collections::HashSet::new();
+        for ax in &op.axes {
+            if let EAxis::Lab(id) = ax {
+                if !seen.insert(*id) {
+                    return Err(op_err("einsum", "repeated label within one operand"));
+                }
+            }
+        }
+    }
+
+    // Broadcast batch shape across operands (right-aligned).
+    let mut batch_shape: Vec<usize> = Vec::new();
+    for b in &batch_dims {
+        batch_shape = broadcast_shape_pub(&batch_shape, b, "einsum")?;
+    }
+    let b_ndim = batch_shape.len();
+
+    // Output axis spec in output order: kept labels and (when `...` is
+    // written) the broadcast batch axes at the ellipsis position.
+    enum OutAxis {
+        Lab(usize),
+        Bat(usize),
+    }
+    let mut out_axes: Vec<OutAxis> = Vec::new();
+    let mut out_has_ell = false;
+    if has_arrow {
+        let sub = parse_einsum_sub(rhs)?;
+        out_has_ell = sub.ell;
+        let push_lab = |ch: char, out_axes: &mut Vec<OutAxis>| -> Result<(), EvalError> {
+            match label_id.get(&ch) {
+                Some(&id) => {
+                    out_axes.push(OutAxis::Lab(id));
+                    Ok(())
+                }
+                None => Err(op_err(
+                    "einsum",
+                    format!("output label {ch:?} does not appear in any operand"),
+                )),
+            }
+        };
+        for &ch in &sub.left {
+            push_lab(ch, &mut out_axes)?;
+        }
+        if sub.ell {
+            for b in 0..b_ndim {
+                out_axes.push(OutAxis::Bat(b));
+            }
+            for &ch in &sub.right {
+                push_lab(ch, &mut out_axes)?;
+            }
+        }
+    } else {
+        // Implicit output (numpy/torch convention): broadcast ellipsis
+        // dims FIRST, then the labels appearing in exactly ONE operand
+        // in alphabetical order.
+        for b in 0..b_ndim {
+            out_axes.push(OutAxis::Bat(b));
+        }
+        out_has_ell = true; // batch dims are kept, not summed
+        let mut count = vec![0usize; label_size.len()];
+        for op in &operands {
+            let mut seen_here = std::collections::HashSet::new();
+            for ax in &op.axes {
+                if let EAxis::Lab(id) = ax {
+                    if seen_here.insert(*id) {
+                        count[*id] += 1;
+                    }
+                }
+            }
+        }
+        let mut once: Vec<usize> = first_seen
+            .iter()
+            .copied()
+            .filter(|&id| count[id] == 1)
+            .collect();
+        once.sort_by_key(|&id| label_chars[id]);
+        for id in once {
+            out_axes.push(OutAxis::Lab(id));
+        }
+    }
+
+    // Positions: out_pos[id] = axis in the output index vector;
+    // red_pos[id] = axis in the contraction index vector.
+    let mut out_pos = vec![usize::MAX; label_size.len()];
+    let mut batch_out_pos0 = usize::MAX;
+    for (i, ax) in out_axes.iter().enumerate() {
+        match ax {
+            OutAxis::Lab(id) => out_pos[*id] = i,
+            OutAxis::Bat(_) => {
+                if batch_out_pos0 == usize::MAX {
+                    batch_out_pos0 = i;
+                }
+            }
+        }
+    }
+    // Contracted labels = operand labels absent from the output,
+    // first-appearance order; then the batch axes when the output has
+    // no `...` (they are summed like any non-output dim).
+    let contract: Vec<usize> = first_seen
+        .iter()
+        .copied()
+        .filter(|&id| out_pos[id] == usize::MAX)
+        .collect();
+    let mut red_pos = vec![usize::MAX; label_size.len()];
+    for (i, &id) in contract.iter().enumerate() {
+        red_pos[id] = i;
+    }
+    let n_contract = contract.len();
+    let mut red_shape: Vec<usize> = contract.iter().map(|&id| label_size[id].unwrap()).collect();
+    if !out_has_ell {
+        red_shape.extend(batch_shape.iter().copied());
+    }
+    let mut out_shape: Vec<usize> = Vec::with_capacity(out_axes.len());
+    for ax in &out_axes {
+        match ax {
+            OutAxis::Lab(id) => out_shape.push(label_size[*id].unwrap()),
+            OutAxis::Bat(b) => out_shape.push(batch_shape[*b]),
+        }
+    }
+
+    // Per-operand axis → index source + row-major stride.
+    enum Src {
+        O(usize),
+        R(usize),
+    }
+    struct ExecOp<'a> {
+        data: &'a [f64],
+        srcs: Vec<Src>,
+        strides: Vec<usize>,
+    }
+    let mut execs: Vec<ExecOp> = Vec::with_capacity(operands.len());
+    for op in &operands {
+        let mut strides = row_major_strides(&op.t.shape);
+        let mut srcs = Vec::with_capacity(op.axes.len());
+        for (d, ax) in op.axes.iter().enumerate() {
+            srcs.push(match ax {
+                EAxis::Lab(id) => {
+                    if out_pos[*id] != usize::MAX {
+                        Src::O(out_pos[*id])
+                    } else {
+                        Src::R(red_pos[*id])
+                    }
+                }
+                EAxis::Bat(j) => {
+                    // Local ellipsis dim → right-aligned global batch axis.
+                    let b = b_ndim - op.e + *j;
+                    if out_has_ell {
+                        Src::O(batch_out_pos0 + b)
+                    } else {
+                        Src::R(n_contract + b)
+                    }
+                }
+            });
+            // Ellipsis dims broadcast: an extent-1 operand dim reads
+            // index 0 regardless of the global batch coordinate.
+            if matches!(ax, EAxis::Bat(_)) && op.t.shape[d] == 1 {
+                strides[d] = 0;
+            }
+        }
+        execs.push(ExecOp {
+            data: &op.t.data,
+            srcs,
+            strides,
+        });
+    }
+
+    // Sum-of-products engine: out[O] = Σ_R Π_i operand_i[offset_i(O,R)].
+    let out_numel: usize = out_shape.iter().product();
+    let red_numel: usize = red_shape.iter().product();
+    let mut data = Vec::with_capacity(out_numel);
+    let mut oi = vec![0usize; out_shape.len()];
+    let mut ri = vec![0usize; red_shape.len()];
+    for _ in 0..out_numel {
+        let mut acc = 0.0;
+        for _ in 0..red_numel {
+            let mut prod = 1.0;
+            for e in &execs {
+                let mut off = 0usize;
+                for (d, s) in e.srcs.iter().enumerate() {
+                    let c = match s {
+                        Src::O(p) => oi[*p],
+                        Src::R(p) => ri[*p],
+                    };
+                    off += c * e.strides[d];
+                }
+                prod *= e.data[off];
+            }
+            acc += prod;
+            for d in (0..red_shape.len()).rev() {
+                ri[d] += 1;
+                if ri[d] < red_shape[d] {
+                    break;
+                }
+                ri[d] = 0;
+            }
+        }
+        data.push(acc);
+        for d in (0..out_shape.len()).rev() {
+            oi[d] += 1;
+            if oi[d] < out_shape[d] {
+                break;
+            }
+            oi[d] = 0;
+        }
+    }
+    Ok(enc(Tensor {
+        shape: out_shape,
+        data,
+    }))
+}
+
+/// `searchsorted` — `aten::searchsorted.Tensor(sorted_sequence, self,
+/// right?, side?)` (the `.Scalar` sibling is covered too — a numeric
+/// `self` is treated as a single query). Searches the LAST dim of
+/// `sorted_sequence`; `self` broadcasts against `sorted.shape[..-1]`
+/// (extent-1 dims stretch, others must match exactly). `right` selects
+/// upper_bound vs lower_bound; `side` ("left"/"right") overrides it.
+/// `out_int32` is accepted and ignored (indices are always f64 on this
+/// wire); a `sorter` argument errors — we don't honor precomputed order.
+/// NaN compares greater than every number (sorted-last convention).
+pub(crate) fn k_searchsorted(args: &[serde_json::Value]) -> Result<serde_json::Value, EvalError> {
+    use super::codec::require_tensor;
+    let sorted = require_tensor(args, 0)?;
+    let rank = sorted.shape.len();
+    if rank == 0 {
+        return Err(op_err("searchsorted", "sorted_sequence must have rank >= 1"));
+    }
+    let n = sorted.shape[rank - 1];
+    let mut right = opt_bool(args.get(3), false)?;
+    if let Some(v) = args.get(4) {
+        if !v.is_null() {
+            match v.as_str() {
+                Some("right") => right = true,
+                Some("left") => right = false,
+                _ => {
+                    return Err(op_err(
+                        "searchsorted",
+                        "side must be \"left\" or \"right\"",
+                    ))
+                }
+            }
+        }
+    }
+    if args.get(5).is_some_and(|v| !v.is_null()) {
+        return Err(op_err("searchsorted", "sorter argument unsupported"));
+    }
+
+    // self: tensor (any broadcastable shape) or scalar.
+    let self_t = match args.get(1) {
+        Some(v) if v.is_number() => None,
+        Some(v) => Some(decode_tensor(v)?),
+        None => return Err(op_err("searchsorted", "missing self")),
+    };
+    let scalar_q = args.get(1).and_then(|v| v.as_f64());
+
+    // Outer (all but last) dims of sorted; rows are contiguous.
+    let outer_shape = &sorted.shape[..rank - 1];
+    let outer_numel: usize = outer_shape.iter().product();
+
+    // Binary search one row.
+    let search = |row: &[f64], v: f64| -> f64 {
+        let (mut lo, mut hi) = (0usize, row.len());
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            let adv = if right {
+                // upper_bound: first index with row[i] > v
+                match row[mid].partial_cmp(&v) {
+                    Some(std::cmp::Ordering::Greater) => false,
+                    Some(_) => true,
+                    None => v.is_nan(), // row NaN vs v: NaN is largest → row > v unless v NaN
+                }
+            } else {
+                // lower_bound: first index with row[i] >= v
+                match row[mid].partial_cmp(&v) {
+                    Some(std::cmp::Ordering::Less) => true,
+                    Some(_) => false,
+                    None => !v.is_nan(), // row NaN: row >= v unless v is NaN too
+                }
+            };
+            if adv {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        lo as f64
+    };
+
+    match self_t {
+        None => {
+            // Scalar query: one index per outer position.
+            let v = scalar_q.unwrap_or(f64::NAN);
+            let mut data = Vec::with_capacity(outer_numel);
+            for o in 0..outer_numel {
+                // Row-major: outer index o selects the contiguous row.
+                data.push(search(&sorted.data[o * n..(o + 1) * n], v));
+            }
+            Ok(enc(Tensor {
+                shape: outer_shape.to_vec(),
+                data,
+            }))
+        }
+        Some(st) => {
+            let rs = st.shape.len();
+            if rs == 0 || rs > rank {
+                return Err(op_err(
+                    "searchsorted",
+                    format!("self rank {rs} incompatible with sorted rank {rank}"),
+                ));
+            }
+            let m = st.shape[rs - 1];
+            // self outer dims must broadcast to sorted outer dims
+            // (right-aligned; extent-1 stretches).
+            let s_outer = &st.shape[..rs - 1];
+            let s_outer_rank = s_outer.len();
+            let out_rank = rank - 1;
+            if s_outer_rank > out_rank {
+                return Err(op_err("searchsorted", "self has too many outer dims"));
+            }
+            for i in 0..out_rank {
+                let sd = if i < out_rank - s_outer_rank {
+                    1
+                } else {
+                    s_outer[i - (out_rank - s_outer_rank)]
+                };
+                let od = outer_shape[i];
+                if sd != 1 && sd != od {
+                    return Err(op_err(
+                        "searchsorted",
+                        format!("self outer dim {sd} not broadcastable to {od}"),
+                    ));
+                }
+            }
+            let mut out_shape = outer_shape.to_vec();
+            out_shape.push(m);
+            let out_numel: usize = out_shape.iter().product();
+            // self outer strides (row-major over its own outer dims).
+            let s_outer_strides = row_major_strides(s_outer);
+            let mut data = vec![0.0; out_numel];
+            for o in 0..outer_numel {
+                // self outer offset for this sorted-outer position:
+                // decompose o into outer coords, map through broadcast.
+                let row = &sorted.data[o * n..(o + 1) * n];
+                // coords of o
+                let mut coords = vec![0usize; out_rank];
+                let mut rem = o;
+                for d in (0..out_rank).rev() {
+                    coords[d] = rem % outer_shape[d];
+                    rem /= outer_shape[d];
+                }
+                // self outer offset
+                let mut soff = 0usize;
+                for i in 0..out_rank {
+                    let sd = if i < out_rank - s_outer_rank {
+                        1
+                    } else {
+                        s_outer[i - (out_rank - s_outer_rank)]
+                    };
+                    let c = if sd == 1 { 0 } else { coords[i] };
+                    if i >= out_rank - s_outer_rank {
+                        soff += c * s_outer_strides[i - (out_rank - s_outer_rank)];
+                    }
+                }
+                for q in 0..m {
+                    let v = st.data[soff * m + q];
+                    data[o * m + q] = search(row, v);
+                }
+            }
+            Ok(enc(Tensor {
+                shape: out_shape,
+                data,
+            }))
+        }
+    }
+}
+
+/// `quantile` — `aten::quantile(self, q, dim?, keepdim?, interpolation)`.
+/// Only `"linear"` interpolation is supported (others error loudly);
+/// `q` may be a tensor (any shape — its shape leads the output) or a
+/// scalar. `dim=None` flattens all axes → output shape = q.shape;
+/// `dim=d` sorts along d → output = q.shape ++ kept dims (keepdim
+/// retains the axis as size-1). q values must lie in [0, 1].
+pub(crate) fn k_quantile(args: &[serde_json::Value]) -> Result<serde_json::Value, EvalError> {
+    use super::codec::require_tensor;
+    let t = require_tensor(args, 0)?;
+    // q: tensor or scalar → (q_shape, q_data).
+    let (q_shape, q_data): (Vec<usize>, Vec<f64>) = match args.get(1) {
+        Some(v) if v.is_number() => (vec![], vec![req_f64(v)?]),
+        Some(v) => {
+            let q = decode_tensor(v)?;
+            (q.shape.clone(), q.data.clone())
+        }
+        None => return Err(op_err("quantile", "missing q")),
+    };
+    for &q in &q_data {
+        if !(0.0..=1.0).contains(&q) {
+            return Err(op_err("quantile", format!("q={q} outside [0, 1]")));
+        }
+    }
+    // interpolation: string, default "linear" — only linear implemented.
+    if let Some(v) = args.get(4) {
+        if !v.is_null() {
+            match v.as_str() {
+                Some("linear") | None => {}
+                Some(other) => {
+                    return Err(op_err(
+                        "quantile",
+                        format!("interpolation {other:?} unsupported (only \"linear\")"),
+                    ))
+                }
+            }
+        }
+    }
+    // dim: absent/null → flatten; int (or 1-elem list) → single axis.
+    let dim: Option<i64> = match args.get(2) {
+        None => None,
+        Some(v) if v.is_null() => None,
+        Some(v) if v.is_array() => {
+            let ds = req_i64s(v)?;
+            if ds.len() != 1 {
+                return Err(op_err("quantile", "dim must be a single int"));
+            }
+            Some(ds[0])
+        }
+        Some(v) => Some(req_i64(v)?),
+    };
+    let keepdim = opt_bool(args.get(3), false)?;
+
+    // Per-q interpolation knots: h = q*(n-1) → (i0, i1, frac).
+    let knots = |n: usize| -> Vec<(usize, usize, f64)> {
+        q_data
+            .iter()
+            .map(|&q| {
+                let h = q * (n.saturating_sub(1)) as f64;
+                let i0 = (h.floor() as usize).min(n.saturating_sub(1));
+                let i1 = (h.ceil() as usize).min(n.saturating_sub(1));
+                (i0, i1, h - h.floor())
+            })
+            .collect()
+    };
+
+    match dim {
+        None => {
+            if t.data.is_empty() {
+                return Err(op_err("quantile", "empty tensor"));
+            }
+            let mut s = t.data.clone();
+            s.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+            let ks = knots(s.len());
+            let data: Vec<f64> = ks
+                .iter()
+                .map(|&(i0, i1, f)| s[i0] + f * (s[i1] - s[i0]))
+                .collect();
+            Ok(enc(Tensor {
+                shape: q_shape,
+                data,
+            }))
+        }
+        Some(d0) => {
+            let d = wrap_dim(d0, t.shape.len(), "quantile")?;
+            let w = t.shape[d];
+            if w == 0 {
+                return Err(op_err("quantile", "empty dim"));
+            }
+            let (vals, _) = sort_dim(&t, d0, false, "quantile")?;
+            let tail: usize = t.shape[d + 1..].iter().product();
+            let outer: usize = t.shape[..d].iter().product();
+            let kept_numel = t.data.len() / w;
+            let ks = knots(w);
+            // kept shape (q.shape leads).
+            let mut kept_shape: Vec<usize> = t
+                .shape
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != d)
+                .map(|(_, &s)| s)
+                .collect();
+            if keepdim {
+                kept_shape.insert(d, 1);
+            }
+            let mut out_shape = q_shape.clone();
+            out_shape.extend(kept_shape);
+            let q_numel: usize = q_shape.iter().product();
+            let mut data = vec![0.0; q_numel * kept_numel];
+            for (qi, &(i0, i1, f)) in ks.iter().enumerate() {
+                for o in 0..outer {
+                    for j in 0..tail {
+                        let at = |i: usize| (o * w + i) * tail + j;
+                        let v = vals.data[at(i0)] + f * (vals.data[at(i1)] - vals.data[at(i0)]);
+                        data[qi * kept_numel + o * tail + j] = v;
+                    }
+                }
+            }
+            Ok(enc(Tensor {
+                shape: out_shape,
+                data,
+            }))
+        }
+    }
+}
+
+/// `count_nonzero` — `aten::count_nonzero(self, dim?)`: count of `x != 0`.
+/// `dim=None` → rank-0 total; a given dim keeps size-1 (torch's
+/// count_nonzero is keepdim-when-dim-given).
+pub(crate) fn k_count_nonzero(t: &Tensor, dim: Option<i64>) -> Result<Tensor, EvalError> {
+    let mask = map_unary(t, |x| if x != 0.0 { 1.0 } else { 0.0 });
+    match dim {
+        None => reduce_sum(&mask, None, false),
+        Some(d) => reduce_sum(&mask, Some(vec![d]), true),
+    }
+}
+
+/// `dist` — `aten::dist(self, other, p=2)`: `‖a−b‖_p` over all elements
+/// (broadcast operands) → rank-0.
+pub(crate) fn k_dist(a: &Tensor, b: &Tensor, p: f64) -> Result<Tensor, EvalError> {
+    let d = broadcast_elementwise(a, b, "tensor.dist", |x, y| x - y)?;
+    p_norm(&d, None, p, false)
+}
+
+/// `allclose` — `aten::allclose(self, other, rtol, atol, equal_nan)` →
+/// bool: every broadcast pair satisfies `|a−b| <= atol + rtol·|b|`
+/// (or both NaN when `equal_nan`).
+pub(crate) fn k_allclose(
+    a: &Tensor,
+    b: &Tensor,
+    rtol: f64,
+    atol: f64,
+    equal_nan: bool,
+) -> Result<serde_json::Value, EvalError> {
+    let d = broadcast_elementwise(a, b, "tensor.allclose", |x, y| {
+        let ok = (x - y).abs() <= atol + rtol * y.abs()
+            || (equal_nan && x.is_nan() && y.is_nan());
+        if ok { 1.0 } else { 0.0 }
+    })?;
+    Ok(json!(d.data.iter().all(|&v| v != 0.0)))
+}
+
+/// `is_nonzero` — `aten::is_nonzero(self)` → any element `!= 0`.
+pub(crate) fn k_is_nonzero(t: &Tensor) -> Result<serde_json::Value, EvalError> {
+    Ok(json!(t.data.iter().any(|&x| x != 0.0)))
+}
+
+/// `msort` — `aten::msort(self)`: sort the last dim ascending, values
+/// only (the values half of `sort`).
+pub(crate) fn k_msort(t: &Tensor) -> Result<Tensor, EvalError> {
+    Ok(sort_dim(t, -1, false, "msort")?.0)
+}
+
+fn nan_zero(t: &Tensor) -> Tensor {
+    map_unary(t, |x| if x.is_nan() { 0.0 } else { x })
+}
+
+fn nan_mask(t: &Tensor) -> Tensor {
+    map_unary(t, |x| if x.is_nan() { 0.0 } else { 1.0 })
+}
+
+/// `nansum` — `aten::nansum(self, dim?, keepdim?)`: NaN treated as 0.
+pub(crate) fn k_nansum(
+    t: &Tensor,
+    dims: Option<&[i64]>,
+    keepdim: bool,
+) -> Result<Tensor, EvalError> {
+    reduce_sum(&nan_zero(t), dims.map(|d| d.to_vec()), keepdim)
+}
+
+/// `nanmean` — `aten::nanmean(self, dim?, keepdim?)`: mean over
+/// non-NaN elements; an all-NaN slice yields NaN.
+pub(crate) fn k_nanmean(
+    t: &Tensor,
+    dims: Option<&[i64]>,
+    keepdim: bool,
+) -> Result<Tensor, EvalError> {
+    let s = reduce_sum(&nan_zero(t), dims.map(|d| d.to_vec()), keepdim)?;
+    let c = reduce_sum(&nan_mask(t), dims.map(|d| d.to_vec()), keepdim)?;
+    Ok(Tensor {
+        shape: s.shape.clone(),
+        data: s
+            .data
+            .iter()
+            .zip(&c.data)
+            .map(|(&a, &b)| if b == 0.0 { f64::NAN } else { a / b })
+            .collect(),
+    })
+}
+
+/// p-distance between two equal-length rows: `(Σ|a−b|^p)^(1/p)`;
+/// `p = ∞` → max|a−b|.
+fn p_dist_rows(a: &[f64], b: &[f64], p: f64) -> f64 {
+    if p == f64::INFINITY {
+        return a
+            .iter()
+            .zip(b)
+            .map(|(&x, &y)| (x - y).abs())
+            .fold(0.0, f64::max);
+    }
+    let s: f64 = a.iter().zip(b).map(|(&x, &y)| (x - y).abs().powf(p)).sum();
+    s.powf(1.0 / p)
+}
+
+/// `cdist` — `aten::cdist(x1, x2, p=2, compute_mode?)`: pairwise
+/// p-distances. Rank-2 `(B,P)×(R,P) → (B,R)`; rank-3 `(N,B,P)×(N,R,P)
+/// → (N,B,R)` with strictly-equal batch dims (torch broadcasts batch
+/// dims — a documented subset boundary). `compute_mode` is a perf hint,
+/// accepted and ignored.
+pub(crate) fn k_cdist(
+    x1: &Tensor,
+    x2: &Tensor,
+    p: f64,
+    _mode: Option<i64>,
+) -> Result<Tensor, EvalError> {
+    match (x1.shape.len(), x2.shape.len()) {
+        (2, 2) => {
+            let (b1, p1, r2, p2) = (x1.shape[0], x1.shape[1], x2.shape[0], x2.shape[1]);
+            if p1 != p2 {
+                return Err(op_err("cdist", format!("feature dim mismatch {p1} vs {p2}")));
+            }
+            let mut data = vec![0.0; b1 * r2];
+            for i in 0..b1 {
+                for j in 0..r2 {
+                    data[i * r2 + j] = p_dist_rows(
+                        &x1.data[i * p1..(i + 1) * p1],
+                        &x2.data[j * p2..(j + 1) * p2],
+                        p,
+                    );
+                }
+            }
+            Ok(Tensor { shape: vec![b1, r2], data })
+        }
+        (3, 3) => {
+            let (nb, b1, f1, rb, f2) = (x1.shape[0], x1.shape[1], x1.shape[2], x2.shape[1], x2.shape[2]);
+            if x1.shape[0] != x2.shape[0] || f1 != f2 {
+                return Err(op_err("cdist", "batched cdist requires equal batch and feature dims"));
+            }
+            let _ = rb;
+            let mut data = vec![0.0; nb * b1 * x2.shape[1]];
+            for n in 0..nb {
+                for i in 0..b1 {
+                    for j in 0..x2.shape[1] {
+                        data[(n * b1 + i) * x2.shape[1] + j] = p_dist_rows(
+                            &x1.data[(n * b1 + i) * f1..(n * b1 + i + 1) * f1],
+                            &x2.data[(n * x2.shape[1] + j) * f2..(n * x2.shape[1] + j + 1) * f2],
+                            p,
+                        );
+                    }
+                }
+            }
+            Ok(Tensor {
+                shape: vec![nb, b1, x2.shape[1]],
+                data,
+            })
+        }
+        _ => Err(op_err(
+            "cdist",
+            format!("expected rank-2 or rank-3 operands, got {:?} x {:?}", x1.shape, x2.shape),
+        )),
+    }
+}
+
+/// `pdist` — `aten::pdist(self, p=2)`: condensed pairwise distances —
+/// rank-2 `(B,P) → (B(B−1)/2,)`, rank-3 `(N,B,P) → (N, B(B−1)/2)`.
+pub(crate) fn k_pdist(t: &Tensor, p: f64) -> Result<Tensor, EvalError> {
+    let pairs = |b: usize| b * b.saturating_sub(1) / 2;
+    // Emit condensed distances for one (…, B, P) slab; `base` is the
+    // flat offset of the slab in `t.data`.
+    let slab = |t: &Tensor, base: usize, b: usize, f: usize, out: &mut Vec<f64>| {
+        for i in 0..b {
+            for j in (i + 1)..b {
+                out.push(p_dist_rows(
+                    &t.data[base + i * f..base + (i + 1) * f],
+                    &t.data[base + j * f..base + (j + 1) * f],
+                    p,
+                ));
+            }
+        }
+    };
+    match t.shape.len() {
+        2 => {
+            let (b, f) = (t.shape[0], t.shape[1]);
+            let mut data = Vec::with_capacity(pairs(b));
+            slab(t, 0, b, f, &mut data);
+            Ok(Tensor { shape: vec![data.len()], data })
+        }
+        3 => {
+            let (nb, b, f) = (t.shape[0], t.shape[1], t.shape[2]);
+            let per = pairs(b);
+            let mut data = Vec::with_capacity(nb * per);
+            for n in 0..nb {
+                slab(t, n * b * f, b, f, &mut data);
+            }
+            Ok(Tensor {
+                shape: vec![nb, per],
+                data,
+            })
+        }
+        r => Err(op_err("pdist", format!("expected rank 2 or 3, got {r}"))),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -3157,5 +4578,224 @@ mod tests {
         assert_eq!(k_size(&[encode_tensor(a.clone())]).unwrap(), json!([2, 3]));
         assert_eq!(k_dim(&a), json!(2));
         assert_eq!(k_numel(&a), json!(6));
+    }
+
+    // --- seam closures -------------------------------------------------
+
+    fn tv(shape: &[usize], data: &[f64]) -> Value {
+        tensor(shape, data)
+    }
+
+    #[test]
+    fn einsum_matmul_and_implicit() {
+        // "ij,jk->ik" == mm.
+        let a = tv(&[2, 3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        let b = tv(&[3, 2], &[7.0, 8.0, 9.0, 10.0, 11.0, 12.0]);
+        let out = k_einsum(&[json!("ij,jk->ik"), json!([a.clone(), b.clone()])]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap().data, vec![58.0, 64.0, 139.0, 154.0]);
+        // Implicit output (numpy rule): once-labels alphabetical →
+        // 'hi', i.e. (A@B)ᵀ layout — the known np.einsum gotcha.
+        let out = k_einsum(&[json!("ij,jh"), json!([a.clone(), b.clone()])]).unwrap();
+        let r = decode_tensor(&out).unwrap();
+        assert_eq!(r.shape, vec![2, 2]);
+        assert_eq!(r.data, vec![58.0, 139.0, 64.0, 154.0]);
+        // Transpose via explicit output.
+        let a = tv(&[2, 3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        let out = k_einsum(&[json!("ij->ji"), json!([a])]).unwrap();
+        let tt = decode_tensor(&out).unwrap();
+        assert_eq!(tt.shape, vec![3, 2]);
+        assert_eq!(tt.data, vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
+        // Three-operand chain: "ij,jk,kl->il".
+        let c = tv(&[2, 2], &[1.0, 0.0, 0.0, 1.0]);
+        let out = k_einsum(&[json!("ij,jk,kl->il"), json!([a, b, c])]).unwrap();
+        let r = decode_tensor(&out).unwrap();
+        assert_eq!(r.shape, vec![2, 2]);
+        // a·b = [[58,64],[139,154]]; ·I = same.
+        assert_eq!(r.data, vec![58.0, 64.0, 139.0, 154.0]);
+    }
+
+    #[test]
+    fn einsum_ellipsis_batch() {
+        // bmm via "...ij,jk->...ik": (2,2,3) x (3,2) → (2,2,2).
+        let a_data: Vec<f64> = (0..12).map(|x| x as f64).collect();
+        let a = tv(&[2, 2, 3], &a_data);
+        let b = tv(&[3, 2], &[1.0, 0.0, 0.0, 1.0, 1.0, 1.0]);
+        let out = k_einsum(&[json!("...ij,jk->...ik"), json!([a, b])]).unwrap();
+        let r = decode_tensor(&out).unwrap();
+        assert_eq!(r.shape, vec![2, 2, 2]);
+        // Batch 0: rows [0,1,2]·B and [3,4,5]·B where B=[[1,0],[0,1],[1,1]]
+        // out[0,0,:] = [0*1+1*0+2*1, 0*0+1*1+2*1] = [2,3]
+        assert_eq!(r.data[0..2], vec![2.0, 3.0]);
+        // Implicit ellipsis-sum: "...i,...i" → per-batch dot → shape [2].
+        let x = tv(&[2, 3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        let y = tv(&[2, 3], &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        let out = k_einsum(&[json!("...i,...i"), json!([x, y])]).unwrap();
+        let r = decode_tensor(&out).unwrap();
+        assert_eq!(r.shape, vec![2]);
+        assert_eq!(r.data, vec![6.0, 15.0]);
+    }
+
+    #[test]
+    fn einsum_errors() {
+        // Repeated label in one operand → rejected (no diagonal).
+        let m = tv(&[2, 2], &[1.0, 2.0, 3.0, 4.0]);
+        assert!(k_einsum(&[json!("ii->"), json!([m.clone()])]).is_err());
+        // Output label not in inputs.
+        assert!(k_einsum(&[json!("ij->ik"), json!([m])]).is_err());
+        // Operand count mismatch.
+        assert!(k_einsum(&[json!("ij,jk->ik"), json!([m])]).is_err());
+        // Label size mismatch across operands.
+        let a = tv(&[2, 3], &[0.0; 6]);
+        let b = tv(&[4, 2], &[0.0; 8]);
+        assert!(k_einsum(&[json!("ij,jk->ik"), json!([a, b])]).is_err());
+    }
+
+    #[test]
+    fn tensordot_kron_cross() {
+        let a = t(&[2, 3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        let b = t(&[3, 4], &(0..12).map(|x| x as f64 + 1.0).collect::<Vec<_>>());
+        // contract last of a with first of b → (2,4) == mm.
+        let td = k_tensordot(&a, &b, &vec![1], &vec![0]).unwrap();
+        assert_eq!(td.shape, vec![2, 4]);
+        assert_eq!(td.data, k_mm(&a, &b).unwrap().data);
+        // kron: (2,)⊗(3,) → (6,)
+        let u = t(&[2], &[1.0, 2.0]);
+        let v = t(&[3], &[3.0, 4.0, 5.0]);
+        assert_eq!(k_kron(&u, &v).unwrap().data, vec![3.0, 4.0, 5.0, 6.0, 8.0, 10.0]);
+        // cross: [1,0,0]×[0,1,0] = [0,0,1]
+        let e1 = t(&[3], &[1.0, 0.0, 0.0]);
+        let e2 = t(&[3], &[0.0, 1.0, 0.0]);
+        assert_eq!(k_cross(&e1, &e2, None).unwrap().data, vec![0.0, 0.0, 1.0]);
+        // cross along dim 1 of (2,3)
+        let m1 = t(&[2, 3], &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+        let m2 = t(&[2, 3], &[0.0, 1.0, 0.0, 1.0, 0.0, 0.0]);
+        let c = k_cross(&m1, &m2, Some(1)).unwrap();
+        assert_eq!(c.shape, vec![2, 3]);
+        assert_eq!(c.data, vec![0.0, 0.0, 1.0, 0.0, 0.0, -1.0]);
+    }
+
+    #[test]
+    fn norms_renorm_normalize() {
+        let a = t(&[3], &[3.0, 4.0, 0.0]);
+        assert_eq!(k_norm(&a, 2.0).unwrap().data, vec![5.0]);
+        assert_eq!(k_norm(&a, 1.0).unwrap().data, vec![7.0]);
+        assert_eq!(k_norm(&a, f64::INFINITY).unwrap().data, vec![4.0]);
+        // renorm: p=2, dim=0? use dim -1 on (2,2): row norms.
+        let m = t(&[2, 2], &[3.0, 4.0, 1.0, 1.0]);
+        let r = k_renorm(&m, 2.0, 1, 2.5).unwrap();
+        // row0 norm 5 → scale 0.5 → [1.5,2]; row1 norm √2 → scale 1 (2.5/1.414>1)
+        assert_eq!(r.data[0..2], vec![1.5, 2.0]);
+        assert!((r.data[2] - 1.0).abs() < 1e-12);
+        // normalize: x/max(||x||,eps), dim=1 keepdim internal.
+        let n = k_normalize(&a, 2.0, Some(&[0]), false).unwrap();
+        assert_eq!(n.shape, vec![3]);
+        assert!((n.data[0] - 0.6).abs() < 1e-12);
+    }
+
+    #[test]
+    fn tuple_reductions() {
+        let a = t(&[4], &[3.0, 1.0, 4.0, 1.0]);
+        // median flat → lower median = 2nd smallest = 1.0
+        let med = k_median(&[encode_tensor(a.clone())]).unwrap();
+        assert_eq!(decode_tensor(&med).unwrap().data, vec![1.0]);
+        // mode dim=-1 → most frequent 1.0 at index 1.
+        let mo = k_mode(&a, -1, false).unwrap();
+        assert_eq!(mo["values"], encode_tensor(t(&[], &[1.0])));
+        assert_eq!(mo["indices"], encode_tensor(t(&[], &[1.0])));
+        // kthvalue k=3 → 3.0 at sorted pos 2 → index 0.
+        let kv = k_kthvalue(&a, 3, -1, false).unwrap();
+        assert_eq!(kv["values"], encode_tensor(t(&[], &[3.0])));
+        assert_eq!(kv["indices"], encode_tensor(t(&[], &[0.0])));
+    }
+
+    #[test]
+    fn meshgrid_bincount_corrcoef() {
+        let xs = tv(&[2], &[1.0, 2.0]);
+        let ys = tv(&[3], &[10.0, 20.0, 30.0]);
+        let mg = k_meshgrid(&[decode_tensor(&xs).unwrap(), decode_tensor(&ys).unwrap()]).unwrap();
+        let arr = mg.as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+        let g0 = decode_tensor(&arr[0]).unwrap();
+        let g1 = decode_tensor(&arr[1]).unwrap();
+        assert_eq!(g0.shape, vec![2, 3]);
+        assert_eq!(g0.data, vec![1.0, 1.0, 1.0, 2.0, 2.0, 2.0]);
+        assert_eq!(g1.data, vec![10.0, 20.0, 30.0, 10.0, 20.0, 30.0]);
+        // bincount
+        let bc = k_bincount(&t(&[4], &[0.0, 1.0, 1.0, 3.0]), None, 4).unwrap();
+        assert_eq!(bc.data, vec![1.0, 2.0, 0.0, 1.0]);
+        // corrcoef of identical rows → 1.0
+        let c = k_corrcoef(&t(&[2, 3], &[1.0, 2.0, 3.0, 1.0, 2.0, 3.0])).unwrap();
+        assert!((c.data[0] - 1.0).abs() < 1e-12);
+        assert!((c.data[3] - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn to_dtype_cast() {
+        let a = t(&[2], &[1.0, 2.0]);
+        // f64-family dtype names → identity.
+        let out = k_to(&[encode_tensor(a.clone()), json!("float64")]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap().data, vec![1.0, 2.0]);
+        let out = k_to(&[encode_tensor(a.clone()), json!("double")]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap().data, vec![1.0, 2.0]);
+        // Other dtypes error loudly.
+        assert!(k_to(&[encode_tensor(a.clone()), json!("float32")]).is_err());
+        assert!(k_to(&[encode_tensor(a.clone()), json!("int64")]).is_err());
+        // Tensor rhs → same-dtype copy.
+        let out = k_to(&[encode_tensor(a.clone()), encode_tensor(t(&[2], &[9.0, 9.0]))]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap().data, vec![1.0, 2.0]);
+    }
+
+    #[test]
+    fn searchsorted_quantile() {
+        // sorted [1,3,5,7], queries [0,3,4,8] → [0,1,2,4]
+        let s = t(&[4], &[1.0, 3.0, 5.0, 7.0]);
+        let q = t(&[4], &[0.0, 3.0, 4.0, 8.0]);
+        let out = k_searchsorted(&[encode_tensor(s.clone()), encode_tensor(q), json!(false), json!(false), Value::Null, Value::Null]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap().data, vec![0.0, 1.0, 2.0, 4.0]);
+        // right=true (upper_bound): [0,3,4,8] → [0,2,2,4]
+        let out = k_searchsorted(&[encode_tensor(s.clone()), encode_tensor(t(&[4], &[0.0, 3.0, 4.0, 8.0])), json!(false), json!(true), Value::Null, Value::Null]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap().data, vec![0.0, 2.0, 2.0, 4.0]);
+        // quantile flat, q=0.5 of [0,10,20,30] → 15
+        let x = t(&[4], &[0.0, 10.0, 20.0, 30.0]);
+        let out = k_quantile(&[encode_tensor(x), json!(0.5), Value::Null, json!(false), json!("linear")]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap().data, vec![15.0]);
+        // non-linear interpolation errors.
+        let x = t(&[4], &[0.0, 10.0, 20.0, 30.0]);
+        assert!(k_quantile(&[encode_tensor(x), json!(0.5), Value::Null, json!(false), json!("nearest")]).is_err());
+    }
+
+    #[test]
+    fn misc_promotions() {
+        let a = t(&[2, 2], &[1.0, 2.0, 3.0, 4.0]);
+        // max.dim → {values,indices}
+        let mx = k_max_min(&[encode_tensor(a.clone()), json!(1), json!(false)], true).unwrap();
+        assert_eq!(mx["values"], encode_tensor(t(&[2], &[2.0, 4.0])));
+        assert_eq!(mx["indices"], encode_tensor(t(&[2], &[1.0, 1.0])));
+        // count_nonzero
+        assert_eq!(k_count_nonzero(&t(&[3], &[0.0, 1.0, -2.0]), None).unwrap().data, vec![2.0]);
+        // inner == dot
+        assert_eq!(k_dot(&t(&[2], &[1.0, 2.0]), &t(&[2], &[3.0, 4.0])).unwrap().data, vec![11.0]);
+        // dist p=2 of [0,0] vs [3,4] → 5
+        assert_eq!(k_dist(&t(&[2], &[0.0, 0.0]), &t(&[2], &[3.0, 4.0]), 2.0).unwrap().data, vec![5.0]);
+        // allclose
+        assert_eq!(k_allclose(&t(&[2], &[1.0, 2.0]), &t(&[2], &[1.0, 2.0000001]), 1e-5, 1e-8, false).unwrap(), json!(true));
+        // is_nonzero
+        assert_eq!(k_is_nonzero(&t(&[2], &[0.0, 0.0])).unwrap(), json!(false));
+        // msort == sort values
+        let s = t(&[3], &[3.0, 1.0, 2.0]);
+        assert_eq!(k_msort(&s).unwrap().data, vec![1.0, 2.0, 3.0]);
+        // nansum / nanmean (NaN can't ride the JSON wire — build directly)
+        let nan = Tensor { shape: vec![3], data: vec![1.0, f64::NAN, 3.0] };
+        assert_eq!(k_nansum(&nan, None, false).unwrap().data, vec![4.0]);
+        assert_eq!(k_nanmean(&nan, None, false).unwrap().data, vec![2.0]);
+        // cdist / pdist
+        let x1 = t(&[2, 2], &[0.0, 0.0, 3.0, 4.0]);
+        let x2 = t(&[1, 2], &[0.0, 0.0]);
+        let cd = k_cdist(&x1, &x2, 2.0, None).unwrap();
+        assert_eq!(cd.shape, vec![2, 1]);
+        assert!((cd.data[1] - 5.0).abs() < 1e-12);
+        let pd = k_pdist(&x1, 2.0).unwrap();
+        assert_eq!(pd.shape, vec![1]);
+        assert!((pd.data[0] - 5.0).abs() < 1e-12);
     }
 }

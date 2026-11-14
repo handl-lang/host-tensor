@@ -548,6 +548,38 @@ const MAP: &[MapEntry] = &[
     MapEntry { hnl: "is_contiguous", emit: Emit::Value, call: "Ok(aten_kernels::k_is_contiguous(&v0))", dims: &[], dims_req: &[], arity: None, sig: None },
     // --- pooling --------------------------------------------------------------
     MapEntry { hnl: "avg_pool2d", emit: Emit::Raw, call: "aten_kernels::drv_avg_pool2d(args)", dims: &[], dims_req: &[], arity: None, sig: None },
+    // --- seam closures (formerly `# seam` entries) -----------------------------
+    // einsum's `str equation` and to.dtype's `ScalarType dtype` are required
+    // args of unsupported types — Raw drivers read them from `args` directly.
+    MapEntry { hnl: "einsum", emit: Emit::Raw, call: "aten_kernels::k_einsum(args)", dims: &[], dims_req: &[], arity: Some((2, 3)), sig: Some("Value... -> Tensor") },
+    m("tensordot", Emit::Tensor, "aten_kernels::k_tensordot(&v0, &v1, &v2, &v3)"),
+    m("kron", Emit::Tensor, "aten_kernels::k_kron(&v0, &v1)"),
+    m("cross", Emit::Tensor, "aten_kernels::k_cross(&v0, &v1, v2)"),
+    m("norm", Emit::Tensor, "aten_kernels::k_norm(&v0, v1)"),
+    m("renorm", Emit::Tensor, "aten_kernels::k_renorm(&v0, v1, v2, v3)"),
+    MapEntry { hnl: "normalize", emit: Emit::Tensor, call: "aten_kernels::k_normalize(&v0, v1, v2.as_deref(), v3)", dims: &[2], dims_req: &[], arity: None, sig: None },
+    MapEntry { hnl: "median", emit: Emit::Raw, call: "aten_kernels::k_median(args)", dims: &[], dims_req: &[], arity: Some((1, 3)), sig: Some("Value... -> Value") },
+    MapEntry { hnl: "mode", emit: Emit::Value, call: "aten_kernels::k_mode(&v0, v1, v2)", dims: &[], dims_req: &[], arity: None, sig: None },
+    MapEntry { hnl: "kthvalue", emit: Emit::Value, call: "aten_kernels::k_kthvalue(&v0, v1, v2, v3)", dims: &[], dims_req: &[], arity: None, sig: None },
+    MapEntry { hnl: "quantile", emit: Emit::Raw, call: "aten_kernels::k_quantile(args)", dims: &[], dims_req: &[], arity: None, sig: Some("Value... -> Tensor") },
+    MapEntry { hnl: "searchsorted", emit: Emit::Raw, call: "aten_kernels::k_searchsorted(args)", dims: &[], dims_req: &[], arity: None, sig: Some("Value... -> Tensor") },
+    MapEntry { hnl: "bincount", emit: Emit::Tensor, call: "aten_kernels::k_bincount(&v0, v1.as_ref(), v2)", dims: &[], dims_req: &[], arity: None, sig: None },
+    MapEntry { hnl: "meshgrid", emit: Emit::Value, call: "aten_kernels::k_meshgrid(&v0)", dims: &[], dims_req: &[], arity: None, sig: None },
+    m("corrcoef", Emit::Tensor, "aten_kernels::k_corrcoef(&v0)"),
+    MapEntry { hnl: "to", emit: Emit::Raw, call: "aten_kernels::k_to(args)", dims: &[], dims_req: &[], arity: None, sig: Some("Value... -> Tensor") },
+    // --- promotions: trivially supported by existing kernels ---------------
+    MapEntry { hnl: "max", emit: Emit::Raw, call: "aten_kernels::k_max_min(args, true)", dims: &[], dims_req: &[], arity: Some((1, 3)), sig: Some("Value... -> Value") },
+    MapEntry { hnl: "min", emit: Emit::Raw, call: "aten_kernels::k_max_min(args, false)", dims: &[], dims_req: &[], arity: Some((1, 3)), sig: Some("Value... -> Value") },
+    m("count_nonzero", Emit::Tensor, "aten_kernels::k_count_nonzero(&v0, v1)"),
+    m("inner", Emit::Tensor, "aten_kernels::k_dot(&v0, &v1)"),
+    m("dist", Emit::Tensor, "aten_kernels::k_dist(&v0, &v1, v2)"),
+    MapEntry { hnl: "allclose", emit: Emit::Value, call: "aten_kernels::k_allclose(&v0, &v1, v2, v3, v4)", dims: &[], dims_req: &[], arity: None, sig: None },
+    MapEntry { hnl: "is_nonzero", emit: Emit::Value, call: "aten_kernels::k_is_nonzero(&v0)", dims: &[], dims_req: &[], arity: None, sig: None },
+    m("msort", Emit::Tensor, "aten_kernels::k_msort(&v0)"),
+    MapEntry { hnl: "nansum", emit: Emit::Tensor, call: "aten_kernels::k_nansum(&v0, v1.as_deref(), v2)", dims: &[1], dims_req: &[], arity: None, sig: None },
+    MapEntry { hnl: "nanmean", emit: Emit::Tensor, call: "aten_kernels::k_nanmean(&v0, v1.as_deref(), v2)", dims: &[1], dims_req: &[], arity: None, sig: None },
+    m("cdist", Emit::Tensor, "aten_kernels::k_cdist(&v0, &v1, v2, v3)"),
+    m("pdist", Emit::Tensor, "aten_kernels::k_pdist(&v0, v1)"),
 ];
 
 const fn m(hnl: &'static str, emit: Emit, call: &'static str) -> MapEntry {
@@ -693,28 +725,35 @@ fn resolve(
         return r;
     }
 
-    // Feature gate on args.
+    // Feature gate on args. Raw drivers take `args: &[Value]` verbatim —
+    // unsupported arg types (`str equation`, `ScalarType dtype`) are the
+    // kernel's problem, not the decoder's, so the gate is skipped for
+    // them (and optional unsupported args are NOT "dropped" — the raw
+    // driver still sees them).
+    let raw_emit = map.is_some_and(|m| m.emit == Emit::Raw);
     let mut unsupported_required: Vec<String> = Vec::new();
     let mut dropped: Vec<String> = Vec::new();
-    for a in &s.args {
-        if a.ty.contains("...") || a.ty.contains("Tensor?[]") {
-            unsupported_required.push(format!("{}: {}", a.name, a.ty));
-            continue;
-        }
-        let (kind, _nullable) = classify(&a.ty);
-        if kind == Kind::Unsupported {
-            let optional = a.default.is_some() || strip_nullable(&a.ty).1;
-            if optional {
-                dropped.push(format!("{}:{}", a.name, a.ty));
-            } else {
+    if !raw_emit {
+        for a in &s.args {
+            if a.ty.contains("...") || a.ty.contains("Tensor?[]") {
                 unsupported_required.push(format!("{}: {}", a.name, a.ty));
+                continue;
+            }
+            let (kind, _nullable) = classify(&a.ty);
+            if kind == Kind::Unsupported {
+                let optional = a.default.is_some() || strip_nullable(&a.ty).1;
+                if optional {
+                    dropped.push(format!("{}:{}", a.name, a.ty));
+                } else {
+                    unsupported_required.push(format!("{}: {}", a.name, a.ty));
+                }
             }
         }
-    }
-    if !unsupported_required.is_empty() {
-        r.status = Status::Unsupported;
-        r.reason = format!("unsupported required arg types: {}", unsupported_required.join(", "));
-        return r;
+        if !unsupported_required.is_empty() {
+            r.status = Status::Unsupported;
+            r.reason = format!("unsupported required arg types: {}", unsupported_required.join(", "));
+            return r;
+        }
     }
 
     // Decode plan (skipped for Raw emit).

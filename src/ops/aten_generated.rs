@@ -358,7 +358,6 @@ impl Function for Mish {
 }
 
 /// `tensor.gelu` — ATen port of `aten::gelu(Tensor self, *, str approximate="none") -> Tensor`.
-/// dropped unsupported optional args: approximate:str
 pub(crate) struct Gelu;
 impl Function for Gelu {
     fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
@@ -1724,7 +1723,6 @@ impl Function for OnesLike {
 }
 
 /// `tensor.arange` — ATen port of `aten::arange.start_step(Scalar start, Scalar end, Scalar step=1, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None) -> Tensor`.
-/// dropped unsupported optional args: dtype:ScalarType?, layout:Layout?, device:Device?
 pub(crate) struct Arange;
 impl Function for Arange {
     fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
@@ -1734,7 +1732,6 @@ impl Function for Arange {
 }
 
 /// `tensor.linspace` — ATen port of `aten::linspace(Scalar start, Scalar end, int steps, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None) -> Tensor`.
-/// dropped unsupported optional args: dtype:ScalarType?, layout:Layout?, device:Device?
 pub(crate) struct Linspace;
 impl Function for Linspace {
     fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
@@ -1744,7 +1741,6 @@ impl Function for Linspace {
 }
 
 /// `tensor.logspace` — ATen port of `aten::logspace(Scalar start, Scalar end, int steps, float base=10., *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None) -> Tensor`.
-/// dropped unsupported optional args: dtype:ScalarType?, layout:Layout?, device:Device?
 pub(crate) struct Logspace;
 impl Function for Logspace {
     fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
@@ -1754,7 +1750,6 @@ impl Function for Logspace {
 }
 
 /// `tensor.eye` — ATen port of `aten::eye.m(SymInt n, SymInt m, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None) -> Tensor`.
-/// dropped unsupported optional args: dtype:ScalarType?, layout:Layout?, device:Device?
 pub(crate) struct Eye;
 impl Function for Eye {
     fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
@@ -1831,158 +1826,8 @@ impl Function for AvgPool2d {
     }
 }
 
-/// `tensor.einsum` — ATen port of `aten::einsum(str equation, Tensor[] tensors, *, int[]? path=None) -> Tensor`.
-/// SEAM: seam: seam: equation parser + opt_einsum
-pub(crate) struct Einsum;
-impl Function for Einsum {
-    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
-        let _ = args; // seam stub — no decode
-        Err(EvalError::Other("tensor.einsum: ATen port seam — aten::einsum(str equation, Tensor[] tensors, *, int[]? path=None) -> Tensor — TODO: handwritten kernel required".into()))
-    }
-}
-
-/// `tensor.tensordot` — ATen port of `aten::tensordot(Tensor self, Tensor other, int[] dims_self, int[] dims_other) -> Tensor`.
-/// SEAM: seam: seam: dim-list contraction
-pub(crate) struct Tensordot;
-impl Function for Tensordot {
-    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
-        let _ = args; // seam stub — no decode
-        Err(EvalError::Other("tensor.tensordot: ATen port seam — aten::tensordot(Tensor self, Tensor other, int[] dims_self, int[] dims_other) -> Tensor — TODO: handwritten kernel required".into()))
-    }
-}
-
-/// `tensor.kron` — ATen port of `aten::kron(Tensor self, Tensor other) -> Tensor`.
-/// SEAM: seam: seam: kronecker product
-pub(crate) struct Kron;
-impl Function for Kron {
-    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
-        let _ = args; // seam stub — no decode
-        Err(EvalError::Other("tensor.kron: ATen port seam — aten::kron(Tensor self, Tensor other) -> Tensor — TODO: handwritten kernel required".into()))
-    }
-}
-
-/// `tensor.cross` — ATen port of `aten::cross(Tensor self, Tensor other, int? dim=None) -> Tensor`.
-/// SEAM: seam: seam: dim-optional vector cross
-pub(crate) struct Cross;
-impl Function for Cross {
-    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
-        let _ = args; // seam stub — no decode
-        Err(EvalError::Other("tensor.cross: ATen port seam — aten::cross(Tensor self, Tensor other, int? dim=None) -> Tensor — TODO: handwritten kernel required".into()))
-    }
-}
-
-/// `tensor.norm` — ATen port of `aten::norm.Scalar(Tensor self, Scalar p=2) -> Tensor`.
-/// SEAM: seam: seam: p/ord/dim matrix norms
-pub(crate) struct Norm;
-impl Function for Norm {
-    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
-        let _ = args; // seam stub — no decode
-        Err(EvalError::Other("tensor.norm: ATen port seam — aten::norm.Scalar(Tensor self, Scalar p=2) -> Tensor — TODO: handwritten kernel required".into()))
-    }
-}
-
-/// `tensor.renorm` — ATen port of `aten::renorm(Tensor self, Scalar p, int dim, Scalar maxnorm) -> Tensor`.
-/// SEAM: seam: seam: p-norm rescale
-pub(crate) struct Renorm;
-impl Function for Renorm {
-    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
-        let _ = args; // seam stub — no decode
-        Err(EvalError::Other("tensor.renorm: ATen port seam — aten::renorm(Tensor self, Scalar p, int dim, Scalar maxnorm) -> Tensor — TODO: handwritten kernel required".into()))
-    }
-}
-
-/// `tensor.normalize` — ATen port of `aten::linalg_vector_norm(Tensor self, Scalar ord=2, int[1]? dim=None, bool keepdim=False, *, ScalarType? dtype=None) -> Tensor`.
-/// SEAM: seam: seam: F.normalize is composite (no aten::normalize)
-pub(crate) struct Normalize;
-impl Function for Normalize {
-    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
-        let _ = args; // seam stub — no decode
-        Err(EvalError::Other("tensor.normalize: ATen port seam — aten::linalg_vector_norm(Tensor self, Scalar ord=2, int[1]? dim=None, bool keepdim=False, *, ScalarType? dtype=None) -> Tensor — TODO: handwritten kernel required".into()))
-    }
-}
-
-/// `tensor.median` — ATen port of `aten::median(Tensor self) -> Tensor`.
-/// SEAM: seam: seam: (values,indices) tuple
-pub(crate) struct Median;
-impl Function for Median {
-    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
-        let _ = args; // seam stub — no decode
-        Err(EvalError::Other("tensor.median: ATen port seam — aten::median(Tensor self) -> Tensor — TODO: handwritten kernel required".into()))
-    }
-}
-
-/// `tensor.mode` — ATen port of `aten::mode(Tensor self, int dim=-1, bool keepdim=False) -> (Tensor values, Tensor indices)`.
-/// SEAM: seam: seam: mode tuple
-pub(crate) struct Mode;
-impl Function for Mode {
-    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
-        let _ = args; // seam stub — no decode
-        Err(EvalError::Other("tensor.mode: ATen port seam — aten::mode(Tensor self, int dim=-1, bool keepdim=False) -> (Tensor values, Tensor indices) — TODO: handwritten kernel required".into()))
-    }
-}
-
-/// `tensor.kthvalue` — ATen port of `aten::kthvalue(Tensor self, SymInt k, int dim=-1, bool keepdim=False) -> (Tensor values, Tensor indices)`.
-/// SEAM: seam: seam: (values,indices) tuple
-pub(crate) struct Kthvalue;
-impl Function for Kthvalue {
-    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
-        let _ = args; // seam stub — no decode
-        Err(EvalError::Other("tensor.kthvalue: ATen port seam — aten::kthvalue(Tensor self, SymInt k, int dim=-1, bool keepdim=False) -> (Tensor values, Tensor indices) — TODO: handwritten kernel required".into()))
-    }
-}
-
-/// `tensor.quantile` — ATen port of `aten::quantile(Tensor self, Tensor q, int? dim=None, bool keepdim=False, *, str interpolation="linear") -> Tensor`.
-/// SEAM: seam: seam: interpolation modes
-pub(crate) struct Quantile;
-impl Function for Quantile {
-    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
-        let _ = args; // seam stub — no decode
-        Err(EvalError::Other("tensor.quantile: ATen port seam — aten::quantile(Tensor self, Tensor q, int? dim=None, bool keepdim=False, *, str interpolation=\"linear\") -> Tensor — TODO: handwritten kernel required".into()))
-    }
-}
-
-/// `tensor.searchsorted` — ATen port of `aten::searchsorted.Scalar(Tensor sorted_sequence, Scalar self, *, bool out_int32=False, bool right=False, str? side=None, Tensor? sorter=None) -> Tensor`.
-/// SEAM: seam: seam: sorted-sequence search
-pub(crate) struct Searchsorted;
-impl Function for Searchsorted {
-    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
-        let _ = args; // seam stub — no decode
-        Err(EvalError::Other("tensor.searchsorted: ATen port seam — aten::searchsorted.Scalar(Tensor sorted_sequence, Scalar self, *, bool out_int32=False, bool right=False, str? side=None, Tensor? sorter=None) -> Tensor — TODO: handwritten kernel required".into()))
-    }
-}
-
-/// `tensor.bincount` — ATen port of `aten::bincount(Tensor self, Tensor? weights=None, SymInt minlength=0) -> Tensor`.
-/// SEAM: seam: seam: int-bucket histogram
-pub(crate) struct Bincount;
-impl Function for Bincount {
-    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
-        let _ = args; // seam stub — no decode
-        Err(EvalError::Other("tensor.bincount: ATen port seam — aten::bincount(Tensor self, Tensor? weights=None, SymInt minlength=0) -> Tensor — TODO: handwritten kernel required".into()))
-    }
-}
-
-/// `tensor.meshgrid` — ATen port of `aten::meshgrid(Tensor[] tensors) -> Tensor[]`.
-/// SEAM: seam: seam: Tensor[] -> Tensor[]
-pub(crate) struct Meshgrid;
-impl Function for Meshgrid {
-    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
-        let _ = args; // seam stub — no decode
-        Err(EvalError::Other("tensor.meshgrid: ATen port seam — aten::meshgrid(Tensor[] tensors) -> Tensor[] — TODO: handwritten kernel required".into()))
-    }
-}
-
-/// `tensor.corrcoef` — ATen port of `aten::corrcoef(Tensor self) -> Tensor`.
-/// SEAM: seam: seam: covariance matrix
-pub(crate) struct Corrcoef;
-impl Function for Corrcoef {
-    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
-        let _ = args; // seam stub — no decode
-        Err(EvalError::Other("tensor.corrcoef: ATen port seam — aten::corrcoef(Tensor self) -> Tensor — TODO: handwritten kernel required".into()))
-    }
-}
-
 /// `tensor.empty` — ATen port of `aten::empty.memory_format(SymInt[] size, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None, MemoryFormat? memory_format=None) -> Tensor`.
-/// SEAM: seam: seam: uninitialized fill
+/// SEAM: seam: seam: uninitialized fill (wire needs concrete values)
 pub(crate) struct Empty;
 impl Function for Empty {
     fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
@@ -1992,7 +1837,7 @@ impl Function for Empty {
 }
 
 /// `tensor.rand` — ATen port of `aten::rand(SymInt[] size, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None) -> Tensor`.
-/// SEAM: seam: seam: RNG (no Generator on wire)
+/// SEAM: seam: seam: RNG (no Generator on wire; nondeterminism breaks verification)
 pub(crate) struct Rand;
 impl Function for Rand {
     fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
@@ -2008,16 +1853,6 @@ impl Function for Normal {
     fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
         let _ = args; // seam stub — no decode
         Err(EvalError::Other("tensor.normal: ATen port seam — aten::normal.float_Tensor(float mean, Tensor std, *, Generator? generator=None) -> Tensor — TODO: handwritten kernel required".into()))
-    }
-}
-
-/// `tensor.to` — ATen port of `aten::to.dtype(Tensor(a) self, ScalarType dtype, bool non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)`.
-/// SEAM: seam: seam: dtype cast — f64 only
-pub(crate) struct To;
-impl Function for To {
-    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
-        let _ = args; // seam stub — no decode
-        Err(EvalError::Other("tensor.to: ATen port seam — aten::to.dtype(Tensor(a) self, ScalarType dtype, bool non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a) — TODO: handwritten kernel required".into()))
     }
 }
 
@@ -2038,6 +1873,318 @@ impl Function for NonzeroDim {
     fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
         let _ = args; // seam stub — no decode
         Err(EvalError::Other("tensor.nonzero_dim: ATen port seam — aten::nonzero_static(Tensor self, *, SymInt size, int fill_value=-1) -> Tensor — TODO: handwritten kernel required".into()))
+    }
+}
+
+/// `tensor.einsum` — ATen port of `aten::einsum(str equation, Tensor[] tensors, *, int[]? path=None) -> Tensor`.
+pub(crate) struct Einsum;
+impl Function for Einsum {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 2, 3, "tensor.einsum")?;
+        aten_kernels::k_einsum(args)
+    }
+}
+
+/// `tensor.tensordot` — ATen port of `aten::tensordot(Tensor self, Tensor other, int[] dims_self, int[] dims_other) -> Tensor`.
+pub(crate) struct Tensordot;
+impl Function for Tensordot {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 4, 4, "tensor.tensordot")?;
+        let v0 = require_tensor(args, 0)?;
+        let v1 = require_tensor(args, 1)?;
+        let v2 = req_i64s(aten_kernels::arg_at(args, 2)?)?;
+        let v3 = req_i64s(aten_kernels::arg_at(args, 3)?)?;
+        Ok(encode_tensor(aten_kernels::k_tensordot(&v0, &v1, &v2, &v3)?))
+    }
+}
+
+/// `tensor.kron` — ATen port of `aten::kron(Tensor self, Tensor other) -> Tensor`.
+pub(crate) struct Kron;
+impl Function for Kron {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 2, 2, "tensor.kron")?;
+        let v0 = require_tensor(args, 0)?;
+        let v1 = require_tensor(args, 1)?;
+        Ok(encode_tensor(aten_kernels::k_kron(&v0, &v1)?))
+    }
+}
+
+/// `tensor.cross` — ATen port of `aten::cross(Tensor self, Tensor other, int? dim=None) -> Tensor`.
+pub(crate) struct Cross;
+impl Function for Cross {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 2, 3, "tensor.cross")?;
+        let v0 = require_tensor(args, 0)?;
+        let v1 = require_tensor(args, 1)?;
+        let v2 = opt_i64n(args.get(2))?;
+        Ok(encode_tensor(aten_kernels::k_cross(&v0, &v1, v2)?))
+    }
+}
+
+/// `tensor.norm` — ATen port of `aten::norm.Scalar(Tensor self, Scalar p=2) -> Tensor`.
+pub(crate) struct Norm;
+impl Function for Norm {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 1, 2, "tensor.norm")?;
+        let v0 = require_tensor(args, 0)?;
+        let v1 = opt_f64(args.get(1), 2.0)?;
+        Ok(encode_tensor(aten_kernels::k_norm(&v0, v1)?))
+    }
+}
+
+/// `tensor.renorm` — ATen port of `aten::renorm(Tensor self, Scalar p, int dim, Scalar maxnorm) -> Tensor`.
+pub(crate) struct Renorm;
+impl Function for Renorm {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 4, 4, "tensor.renorm")?;
+        let v0 = require_tensor(args, 0)?;
+        let v1 = req_f64(aten_kernels::arg_at(args, 1)?)?;
+        let v2 = req_i64(aten_kernels::arg_at(args, 2)?)?;
+        let v3 = req_f64(aten_kernels::arg_at(args, 3)?)?;
+        Ok(encode_tensor(aten_kernels::k_renorm(&v0, v1, v2, v3)?))
+    }
+}
+
+/// `tensor.normalize` — ATen port of `aten::linalg_vector_norm(Tensor self, Scalar ord=2, int[1]? dim=None, bool keepdim=False, *, ScalarType? dtype=None) -> Tensor`.
+/// dropped unsupported optional args: dtype:ScalarType?
+pub(crate) struct Normalize;
+impl Function for Normalize {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 1, 5, "tensor.normalize")?;
+        let v0 = require_tensor(args, 0)?;
+        let v1 = opt_f64(args.get(1), 2.0)?;
+        let v2 = aten_kernels::opt_dimlist(args.get(2), None)?;
+        let v3 = opt_bool(args.get(3), false)?;
+        Ok(encode_tensor(aten_kernels::k_normalize(&v0, v1, v2.as_deref(), v3)?))
+    }
+}
+
+/// `tensor.median` — ATen port of `aten::median(Tensor self) -> Tensor`.
+pub(crate) struct Median;
+impl Function for Median {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 1, 3, "tensor.median")?;
+        aten_kernels::k_median(args)
+    }
+}
+
+/// `tensor.mode` — ATen port of `aten::mode(Tensor self, int dim=-1, bool keepdim=False) -> (Tensor values, Tensor indices)`.
+pub(crate) struct Mode;
+impl Function for Mode {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 1, 3, "tensor.mode")?;
+        let v0 = require_tensor(args, 0)?;
+        let v1 = opt_i64(args.get(1), -1)?;
+        let v2 = opt_bool(args.get(2), false)?;
+        aten_kernels::k_mode(&v0, v1, v2)
+    }
+}
+
+/// `tensor.kthvalue` — ATen port of `aten::kthvalue(Tensor self, SymInt k, int dim=-1, bool keepdim=False) -> (Tensor values, Tensor indices)`.
+pub(crate) struct Kthvalue;
+impl Function for Kthvalue {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 2, 4, "tensor.kthvalue")?;
+        let v0 = require_tensor(args, 0)?;
+        let v1 = req_i64(aten_kernels::arg_at(args, 1)?)?;
+        let v2 = opt_i64(args.get(2), -1)?;
+        let v3 = opt_bool(args.get(3), false)?;
+        aten_kernels::k_kthvalue(&v0, v1, v2, v3)
+    }
+}
+
+/// `tensor.quantile` — ATen port of `aten::quantile(Tensor self, Tensor q, int? dim=None, bool keepdim=False, *, str interpolation="linear") -> Tensor`.
+pub(crate) struct Quantile;
+impl Function for Quantile {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 2, 5, "tensor.quantile")?;
+        aten_kernels::k_quantile(args)
+    }
+}
+
+/// `tensor.searchsorted` — ATen port of `aten::searchsorted.Tensor(Tensor sorted_sequence, Tensor self, *, bool out_int32=False, bool right=False, str? side=None, Tensor? sorter=None) -> Tensor`.
+pub(crate) struct Searchsorted;
+impl Function for Searchsorted {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 2, 6, "tensor.searchsorted")?;
+        aten_kernels::k_searchsorted(args)
+    }
+}
+
+/// `tensor.bincount` — ATen port of `aten::bincount(Tensor self, Tensor? weights=None, SymInt minlength=0) -> Tensor`.
+pub(crate) struct Bincount;
+impl Function for Bincount {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 1, 3, "tensor.bincount")?;
+        let v0 = require_tensor(args, 0)?;
+        let v1 = opt_tensor(args, 1)?;
+        let v2 = opt_i64(args.get(2), 0)?;
+        Ok(encode_tensor(aten_kernels::k_bincount(&v0, v1.as_ref(), v2)?))
+    }
+}
+
+/// `tensor.meshgrid` — ATen port of `aten::meshgrid(Tensor[] tensors) -> Tensor[]`.
+pub(crate) struct Meshgrid;
+impl Function for Meshgrid {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 1, 1, "tensor.meshgrid")?;
+        let v0 = aten_kernels::req_tensors(aten_kernels::arg_at(args, 0)?)?;
+        aten_kernels::k_meshgrid(&v0)
+    }
+}
+
+/// `tensor.corrcoef` — ATen port of `aten::corrcoef(Tensor self) -> Tensor`.
+pub(crate) struct Corrcoef;
+impl Function for Corrcoef {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 1, 1, "tensor.corrcoef")?;
+        let v0 = require_tensor(args, 0)?;
+        Ok(encode_tensor(aten_kernels::k_corrcoef(&v0)?))
+    }
+}
+
+/// `tensor.to` — ATen port of `aten::to.dtype(Tensor(a) self, ScalarType dtype, bool non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)`.
+pub(crate) struct To;
+impl Function for To {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 2, 5, "tensor.to")?;
+        aten_kernels::k_to(args)
+    }
+}
+
+/// `tensor.max` — ATen port of `aten::max(Tensor self) -> Tensor`.
+pub(crate) struct Max;
+impl Function for Max {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 1, 3, "tensor.max")?;
+        aten_kernels::k_max_min(args, true)
+    }
+}
+
+/// `tensor.min` — ATen port of `aten::min(Tensor self) -> Tensor`.
+pub(crate) struct Min;
+impl Function for Min {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 1, 3, "tensor.min")?;
+        aten_kernels::k_max_min(args, false)
+    }
+}
+
+/// `tensor.count_nonzero` — ATen port of `aten::count_nonzero(Tensor self, int? dim=None) -> Tensor`.
+pub(crate) struct CountNonzero;
+impl Function for CountNonzero {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 1, 2, "tensor.count_nonzero")?;
+        let v0 = require_tensor(args, 0)?;
+        let v1 = opt_i64n(args.get(1))?;
+        Ok(encode_tensor(aten_kernels::k_count_nonzero(&v0, v1)?))
+    }
+}
+
+/// `tensor.inner` — ATen port of `aten::inner(Tensor self, Tensor other) -> Tensor`.
+pub(crate) struct Inner;
+impl Function for Inner {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 2, 2, "tensor.inner")?;
+        let v0 = require_tensor(args, 0)?;
+        let v1 = require_tensor(args, 1)?;
+        Ok(encode_tensor(aten_kernels::k_dot(&v0, &v1)?))
+    }
+}
+
+/// `tensor.dist` — ATen port of `aten::dist(Tensor self, Tensor other, Scalar p=2) -> Tensor`.
+pub(crate) struct Dist;
+impl Function for Dist {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 2, 3, "tensor.dist")?;
+        let v0 = require_tensor(args, 0)?;
+        let v1 = require_tensor(args, 1)?;
+        let v2 = opt_f64(args.get(2), 2.0)?;
+        Ok(encode_tensor(aten_kernels::k_dist(&v0, &v1, v2)?))
+    }
+}
+
+/// `tensor.allclose` — ATen port of `aten::allclose(Tensor self, Tensor other, float rtol=1.0000000000000001e-05, float atol=1e-08, bool equal_nan=False) -> bool`.
+pub(crate) struct Allclose;
+impl Function for Allclose {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 2, 5, "tensor.allclose")?;
+        let v0 = require_tensor(args, 0)?;
+        let v1 = require_tensor(args, 1)?;
+        let v2 = opt_f64(args.get(2), 0.00001)?;
+        let v3 = opt_f64(args.get(3), 0.00000001)?;
+        let v4 = opt_bool(args.get(4), false)?;
+        aten_kernels::k_allclose(&v0, &v1, v2, v3, v4)
+    }
+}
+
+/// `tensor.is_nonzero` — ATen port of `aten::is_nonzero(Tensor self) -> bool`.
+pub(crate) struct IsNonzero;
+impl Function for IsNonzero {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 1, 1, "tensor.is_nonzero")?;
+        let v0 = require_tensor(args, 0)?;
+        aten_kernels::k_is_nonzero(&v0)
+    }
+}
+
+/// `tensor.msort` — ATen port of `aten::msort(Tensor self) -> Tensor`.
+pub(crate) struct Msort;
+impl Function for Msort {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 1, 1, "tensor.msort")?;
+        let v0 = require_tensor(args, 0)?;
+        Ok(encode_tensor(aten_kernels::k_msort(&v0)?))
+    }
+}
+
+/// `tensor.nansum` — ATen port of `aten::nansum(Tensor self, int[1]? dim=None, bool keepdim=False, *, ScalarType? dtype=None) -> Tensor`.
+/// dropped unsupported optional args: dtype:ScalarType?
+pub(crate) struct Nansum;
+impl Function for Nansum {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 1, 4, "tensor.nansum")?;
+        let v0 = require_tensor(args, 0)?;
+        let v1 = aten_kernels::opt_dimlist(args.get(1), None)?;
+        let v2 = opt_bool(args.get(2), false)?;
+        Ok(encode_tensor(aten_kernels::k_nansum(&v0, v1.as_deref(), v2)?))
+    }
+}
+
+/// `tensor.nanmean` — ATen port of `aten::nanmean(Tensor self, int[1]? dim=None, bool keepdim=False, *, ScalarType? dtype=None) -> Tensor`.
+/// dropped unsupported optional args: dtype:ScalarType?
+pub(crate) struct Nanmean;
+impl Function for Nanmean {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 1, 4, "tensor.nanmean")?;
+        let v0 = require_tensor(args, 0)?;
+        let v1 = aten_kernels::opt_dimlist(args.get(1), None)?;
+        let v2 = opt_bool(args.get(2), false)?;
+        Ok(encode_tensor(aten_kernels::k_nanmean(&v0, v1.as_deref(), v2)?))
+    }
+}
+
+/// `tensor.cdist` — ATen port of `aten::cdist(Tensor x1, Tensor x2, float p=2., int? compute_mode=None) -> Tensor`.
+pub(crate) struct Cdist;
+impl Function for Cdist {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 2, 4, "tensor.cdist")?;
+        let v0 = require_tensor(args, 0)?;
+        let v1 = require_tensor(args, 1)?;
+        let v2 = opt_f64(args.get(2), 2.0)?;
+        let v3 = opt_i64n(args.get(3))?;
+        Ok(encode_tensor(aten_kernels::k_cdist(&v0, &v1, v2, v3)?))
+    }
+}
+
+/// `tensor.pdist` — ATen port of `aten::pdist(Tensor self, float p=2.) -> Tensor`.
+pub(crate) struct Pdist;
+impl Function for Pdist {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 1, 2, "tensor.pdist")?;
+        let v0 = require_tensor(args, 0)?;
+        let v1 = opt_f64(args.get(1), 2.0)?;
+        Ok(encode_tensor(aten_kernels::k_pdist(&v0, v1)?))
     }
 }
 

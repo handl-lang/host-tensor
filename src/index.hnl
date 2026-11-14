@@ -303,6 +303,11 @@ cap "tensor.dim"
 cap "tensor.item"
 cap "tensor.is_contiguous"
 cap "tensor.avg_pool2d"
+cap "tensor.empty"
+cap "tensor.rand"
+cap "tensor.normal"
+cap "tensor.unique"
+cap "tensor.nonzero_dim"
 cap "tensor.einsum"
 cap "tensor.tensordot"
 cap "tensor.kron"
@@ -318,12 +323,19 @@ cap "tensor.searchsorted"
 cap "tensor.bincount"
 cap "tensor.meshgrid"
 cap "tensor.corrcoef"
-cap "tensor.empty"
-cap "tensor.rand"
-cap "tensor.normal"
 cap "tensor.to"
-cap "tensor.unique"
-cap "tensor.nonzero_dim"
+cap "tensor.max"
+cap "tensor.min"
+cap "tensor.count_nonzero"
+cap "tensor.inner"
+cap "tensor.dist"
+cap "tensor.allclose"
+cap "tensor.is_nonzero"
+cap "tensor.msort"
+cap "tensor.nansum"
+cap "tensor.nanmean"
+cap "tensor.cdist"
+cap "tensor.pdist"
 --- ATEN-PORT-GEN:END caps
 op "tensor.zeros" : (List Int) -> Tensor
   guarantee: True
@@ -942,26 +954,41 @@ op "tensor.is_contiguous" : Tensor -> Bool
 --- aten::avg_pool2d(Tensor self, int[2] kernel_size, int[2] stride=[], int[2] padding=0, bool ceil_mode=False, bool count_include_pad=True, int? divisor_override=None) -> Tensor
 op "tensor.avg_pool2d" : Value... -> Tensor
   guarantee: True
+--- aten::empty.memory_format(SymInt[] size, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None, MemoryFormat? memory_format=None) -> Tensor
+op "tensor.empty" : Value... -> Value
+  guarantee: True
+--- aten::rand(SymInt[] size, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None) -> Tensor
+op "tensor.rand" : Value... -> Value
+  guarantee: True
+--- aten::normal.float_Tensor(float mean, Tensor std, *, Generator? generator=None) -> Tensor
+op "tensor.normal" : Value... -> Value
+  guarantee: True
+--- aten::_unique(Tensor self, bool sorted=True, bool return_inverse=False) -> (Tensor, Tensor)
+op "tensor.unique" : Value... -> Value
+  guarantee: True
+--- aten::nonzero_static(Tensor self, *, SymInt size, int fill_value=-1) -> Tensor
+op "tensor.nonzero_dim" : Value... -> Value
+  guarantee: True
 --- aten::einsum(str equation, Tensor[] tensors, *, int[]? path=None) -> Tensor
-op "tensor.einsum" : Value... -> Value
+op "tensor.einsum" : Value... -> Tensor
   guarantee: True
 --- aten::tensordot(Tensor self, Tensor other, int[] dims_self, int[] dims_other) -> Tensor
-op "tensor.tensordot" : Value... -> Value
+op "tensor.tensordot" : (Tensor * Tensor * (List Int) * (List Int)) -> Tensor
   guarantee: True
 --- aten::kron(Tensor self, Tensor other) -> Tensor
-op "tensor.kron" : Value... -> Value
+op "tensor.kron" : (Tensor * Tensor) -> Tensor
   guarantee: True
 --- aten::cross(Tensor self, Tensor other, int? dim=None) -> Tensor
-op "tensor.cross" : Value... -> Value
+op "tensor.cross" : Value... -> Tensor
   guarantee: True
 --- aten::norm.Scalar(Tensor self, Scalar p=2) -> Tensor
-op "tensor.norm" : Value... -> Value
+op "tensor.norm" : Value... -> Tensor
   guarantee: True
 --- aten::renorm(Tensor self, Scalar p, int dim, Scalar maxnorm) -> Tensor
-op "tensor.renorm" : Value... -> Value
+op "tensor.renorm" : (Tensor * Float * Int * Float) -> Tensor
   guarantee: True
 --- aten::linalg_vector_norm(Tensor self, Scalar ord=2, int[1]? dim=None, bool keepdim=False, *, ScalarType? dtype=None) -> Tensor
-op "tensor.normalize" : Value... -> Value
+op "tensor.normalize" : Value... -> Tensor
   guarantee: True
 --- aten::median(Tensor self) -> Tensor
 op "tensor.median" : Value... -> Value
@@ -973,37 +1000,58 @@ op "tensor.mode" : Value... -> Value
 op "tensor.kthvalue" : Value... -> Value
   guarantee: True
 --- aten::quantile(Tensor self, Tensor q, int? dim=None, bool keepdim=False, *, str interpolation="linear") -> Tensor
-op "tensor.quantile" : Value... -> Value
+op "tensor.quantile" : Value... -> Tensor
   guarantee: True
---- aten::searchsorted.Scalar(Tensor sorted_sequence, Scalar self, *, bool out_int32=False, bool right=False, str? side=None, Tensor? sorter=None) -> Tensor
-op "tensor.searchsorted" : Value... -> Value
+--- aten::searchsorted.Tensor(Tensor sorted_sequence, Tensor self, *, bool out_int32=False, bool right=False, str? side=None, Tensor? sorter=None) -> Tensor
+op "tensor.searchsorted" : Value... -> Tensor
   guarantee: True
 --- aten::bincount(Tensor self, Tensor? weights=None, SymInt minlength=0) -> Tensor
-op "tensor.bincount" : Value... -> Value
+op "tensor.bincount" : Value... -> Tensor
   guarantee: True
 --- aten::meshgrid(Tensor[] tensors) -> Tensor[]
-op "tensor.meshgrid" : Value... -> Value
+op "tensor.meshgrid" : Array -> Array
   guarantee: True
 --- aten::corrcoef(Tensor self) -> Tensor
-op "tensor.corrcoef" : Value... -> Value
-  guarantee: True
---- aten::empty.memory_format(SymInt[] size, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None, MemoryFormat? memory_format=None) -> Tensor
-op "tensor.empty" : Value... -> Value
-  guarantee: True
---- aten::rand(SymInt[] size, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None) -> Tensor
-op "tensor.rand" : Value... -> Value
-  guarantee: True
---- aten::normal.float_Tensor(float mean, Tensor std, *, Generator? generator=None) -> Tensor
-op "tensor.normal" : Value... -> Value
+op "tensor.corrcoef" : Tensor -> Tensor
   guarantee: True
 --- aten::to.dtype(Tensor(a) self, ScalarType dtype, bool non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)
-op "tensor.to" : Value... -> Value
+op "tensor.to" : Value... -> Tensor
   guarantee: True
---- aten::_unique(Tensor self, bool sorted=True, bool return_inverse=False) -> (Tensor, Tensor)
-op "tensor.unique" : Value... -> Value
+--- aten::max(Tensor self) -> Tensor
+op "tensor.max" : Value... -> Value
   guarantee: True
---- aten::nonzero_static(Tensor self, *, SymInt size, int fill_value=-1) -> Tensor
-op "tensor.nonzero_dim" : Value... -> Value
+--- aten::min(Tensor self) -> Tensor
+op "tensor.min" : Value... -> Value
+  guarantee: True
+--- aten::count_nonzero(Tensor self, int? dim=None) -> Tensor
+op "tensor.count_nonzero" : Value... -> Tensor
+  guarantee: True
+--- aten::inner(Tensor self, Tensor other) -> Tensor
+op "tensor.inner" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::dist(Tensor self, Tensor other, Scalar p=2) -> Tensor
+op "tensor.dist" : Value... -> Tensor
+  guarantee: True
+--- aten::allclose(Tensor self, Tensor other, float rtol=1.0000000000000001e-05, float atol=1e-08, bool equal_nan=False) -> bool
+op "tensor.allclose" : Value... -> Bool
+  guarantee: True
+--- aten::is_nonzero(Tensor self) -> bool
+op "tensor.is_nonzero" : Tensor -> Bool
+  guarantee: True
+--- aten::msort(Tensor self) -> Tensor
+op "tensor.msort" : Tensor -> Tensor
+  guarantee: True
+--- aten::nansum(Tensor self, int[1]? dim=None, bool keepdim=False, *, ScalarType? dtype=None) -> Tensor
+op "tensor.nansum" : Value... -> Tensor
+  guarantee: True
+--- aten::nanmean(Tensor self, int[1]? dim=None, bool keepdim=False, *, ScalarType? dtype=None) -> Tensor
+op "tensor.nanmean" : Value... -> Tensor
+  guarantee: True
+--- aten::cdist(Tensor x1, Tensor x2, float p=2., int? compute_mode=None) -> Tensor
+op "tensor.cdist" : Value... -> Tensor
+  guarantee: True
+--- aten::pdist(Tensor self, float p=2.) -> Tensor
+op "tensor.pdist" : Value... -> Tensor
   guarantee: True
 --- ATEN-PORT-GEN:END ops
 handle "tensor.zeros" with rust_tensor_zeros
@@ -1212,6 +1260,11 @@ handle "tensor.dim" with rust_dim
 handle "tensor.item" with rust_item
 handle "tensor.is_contiguous" with rust_is_contiguous
 handle "tensor.avg_pool2d" with rust_avg_pool2d
+handle "tensor.empty" with rust_empty
+handle "tensor.rand" with rust_rand
+handle "tensor.normal" with rust_normal
+handle "tensor.unique" with rust_unique
+handle "tensor.nonzero_dim" with rust_nonzero_dim
 handle "tensor.einsum" with rust_einsum
 handle "tensor.tensordot" with rust_tensordot
 handle "tensor.kron" with rust_kron
@@ -1227,12 +1280,19 @@ handle "tensor.searchsorted" with rust_searchsorted
 handle "tensor.bincount" with rust_bincount
 handle "tensor.meshgrid" with rust_meshgrid
 handle "tensor.corrcoef" with rust_corrcoef
-handle "tensor.empty" with rust_empty
-handle "tensor.rand" with rust_rand
-handle "tensor.normal" with rust_normal
 handle "tensor.to" with rust_to
-handle "tensor.unique" with rust_unique
-handle "tensor.nonzero_dim" with rust_nonzero_dim
+handle "tensor.max" with rust_max
+handle "tensor.min" with rust_min
+handle "tensor.count_nonzero" with rust_count_nonzero
+handle "tensor.inner" with rust_inner
+handle "tensor.dist" with rust_dist
+handle "tensor.allclose" with rust_allclose
+handle "tensor.is_nonzero" with rust_is_nonzero
+handle "tensor.msort" with rust_msort
+handle "tensor.nansum" with rust_nansum
+handle "tensor.nanmean" with rust_nanmean
+handle "tensor.cdist" with rust_cdist
+handle "tensor.pdist" with rust_pdist
 --- ATEN-PORT-GEN:END handles
 
 --- The `tensor` namespace record — `from "host-tensor" import tensor` binds
@@ -1446,6 +1506,11 @@ export tensor := {
   item: "tensor.item",
   is_contiguous: "tensor.is_contiguous",
   avg_pool2d: "tensor.avg_pool2d",
+  empty: "tensor.empty",
+  rand: "tensor.rand",
+  normal: "tensor.normal",
+  unique: "tensor.unique",
+  nonzero_dim: "tensor.nonzero_dim",
   einsum: "tensor.einsum",
   tensordot: "tensor.tensordot",
   kron: "tensor.kron",
@@ -1461,11 +1526,18 @@ export tensor := {
   bincount: "tensor.bincount",
   meshgrid: "tensor.meshgrid",
   corrcoef: "tensor.corrcoef",
-  empty: "tensor.empty",
-  rand: "tensor.rand",
-  normal: "tensor.normal",
   to: "tensor.to",
-  unique: "tensor.unique",
-  nonzero_dim: "tensor.nonzero_dim"
+  max: "tensor.max",
+  min: "tensor.min",
+  count_nonzero: "tensor.count_nonzero",
+  inner: "tensor.inner",
+  dist: "tensor.dist",
+  allclose: "tensor.allclose",
+  is_nonzero: "tensor.is_nonzero",
+  msort: "tensor.msort",
+  nansum: "tensor.nansum",
+  nanmean: "tensor.nanmean",
+  cdist: "tensor.cdist",
+  pdist: "tensor.pdist"
 --- ATEN-PORT-GEN:END export
 }
