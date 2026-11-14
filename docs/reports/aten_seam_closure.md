@@ -1,8 +1,9 @@
 # ATen seam closure — handwritten kernels for the declared seams
 
 Status: **landed** — 16 of the 21 declared seams now have real
-handwritten kernels; 5 remain honest stubs. 207 curated entries,
-**Ported=202, Seam=5** (`aten_port_gen` output).
+handwritten kernels; 5 remained honest stubs at landing (**Ported=202,
+Seam=5**; a follow-up closed `unique`/`nonzero_dim` — see below —
+current output **Ported=204, Seam=3**).
 
 Baseline: commit `a95a68c` (generator + 174 real ports + 21 seams).
 This pass added the kernels in `src/ops/aten_kernels.rs` ("Seam
@@ -54,22 +55,34 @@ of the 1-D schema), `dist`, `allclose`, `is_nonzero`, `msort`,
 batch-dim broadcasting is a documented boundary), `pdist` (condensed
 pairs, rank-2/3).
 
-## Remaining seams (5) — and why
+## Remaining seams (3) — and why
 
 | op | pin | reason it stays a seam |
 |----|-----|------------------------|
 | `empty` | `aten::empty` | Uninitialized memory has no honest wire representation — every wire tensor carries concrete `data`. A zero/garbage fill would fake semantics. |
 | `rand` | `aten::rand` | RNG: no `Generator` state exists on the wire, and nondeterministic output breaks the verify-by-replay model this surface is built on. |
 | `normal` | `aten::normal` | Same RNG rationale (all `normal.*` overloads share it). |
-| `unique` | `aten::_unique` | Private schema returning `(values, indices, inverse_indices, counts)` — a 4-tuple the record encoding doesn't cover, plus sorted-vs-unsorted modes. |
-| `nonzero_dim` | `aten::nonzero_static` | `SymInt size` + `fill_value` padding contract differs from `nonzero`; not worth a divergent kernel for the marginal coverage. |
+
+### Follow-up closure (post-landed)
+
+`unique` (`aten::_unique`) and `nonzero_dim` (`aten::nonzero_static`)
+were closed after this report: `_unique` is private-named but a pure
+functional 2-tuple — `k_unique` returns the `{"values","indices"}`
+record encoding (sorted ascending with NaN last, or first-occurrence
+order under `sorted=False`; `return_inverse` is inert per the schema's
+fixed 2-tuple return). `nonzero_static` is the sized variant of
+`nonzero` — `k_nonzero_static` pads the `[nnz, rank]` index tensor to
+`[size, rank]` rows with `fill_value` and errors when `size < nnz`.
+`is_out_or_inplace` exempts `_unique` by name (other `_`-private
+schemas stay excluded). Current generator output: **Ported=204,
+Seam=3**.
 
 Mutation (`*_` in-place) and `out=` variants remain excluded by the
 generator's existing variant filter — the wire model is immutable.
 
 ## Verification
 
-- `cargo run --bin aten_port_gen` → `207 entries — "Ported=202 Seam=5"`
+- `cargo run --bin aten_port_gen` → `207 entries — "Ported=204 Seam=3"`
 - `cargo run --bin aten_port_gen -- --check` → OK (generated surfaces in lockstep)
 - `cargo check --all-targets` → clean
 - `cargo test -p handl-host-tensor` → 97 lib + integration tests, all pass

@@ -1857,22 +1857,20 @@ impl Function for Normal {
 }
 
 /// `tensor.unique` — ATen port of `aten::_unique(Tensor self, bool sorted=True, bool return_inverse=False) -> (Tensor, Tensor)`.
-/// SEAM: seam: seam: (values,indices,inverse) tuple; private schema
 pub(crate) struct Unique;
 impl Function for Unique {
     fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
-        let _ = args; // seam stub — no decode
-        Err(EvalError::Other("tensor.unique: ATen port seam — aten::_unique(Tensor self, bool sorted=True, bool return_inverse=False) -> (Tensor, Tensor) — TODO: handwritten kernel required".into()))
+        require_arg_range(args, 1, 3, "tensor.unique")?;
+        aten_kernels::k_unique(args)
     }
 }
 
 /// `tensor.nonzero_dim` — ATen port of `aten::nonzero_static(Tensor self, *, SymInt size, int fill_value=-1) -> Tensor`.
-/// SEAM: seam: seam: dim-arg variant, tuple ret
 pub(crate) struct NonzeroDim;
 impl Function for NonzeroDim {
     fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
-        let _ = args; // seam stub — no decode
-        Err(EvalError::Other("tensor.nonzero_dim: ATen port seam — aten::nonzero_static(Tensor self, *, SymInt size, int fill_value=-1) -> Tensor — TODO: handwritten kernel required".into()))
+        require_arg_range(args, 2, 3, "tensor.nonzero_dim")?;
+        aten_kernels::k_nonzero_static(args)
     }
 }
 

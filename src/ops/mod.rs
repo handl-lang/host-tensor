@@ -803,12 +803,32 @@ mod tests {
         assert_eq!(out["indices"], tensor(&[], &[1.0]));
 
         // Declared seams still fail loudly rather than faking behavior:
-        // RNG (nondeterminism), uninitialized fill, and the tuple/private
-        // variants we did not close.
+        // RNG (nondeterminism) and uninitialized fill.
         assert!(call_fn(&aten_generated::Rand, &[json!([2])]).is_err());
         assert!(call_fn(&aten_generated::Normal, &[json!(0.0), json!(1.0), json!([2])]).is_err());
         assert!(call_fn(&aten_generated::Empty, &[json!([2])]).is_err());
-        assert!(call_fn(&aten_generated::Unique, &[tensor(&[2], &[1.0, 1.0])]).is_err());
-        assert!(call_fn(&aten_generated::NonzeroDim, &[tensor(&[2], &[0.0, 1.0])]).is_err());
+
+        // `unique` → {values, indices} over the flattened input.
+        let out = call_fn(
+            &aten_generated::Unique,
+            &[tensor(&[3], &[2.0, 1.0, 2.0])],
+        )
+        .unwrap();
+        assert_eq!(out["values"], tensor(&[2], &[1.0, 2.0]));
+        assert_eq!(out["indices"], tensor(&[2], &[1.0, 0.0]));
+
+        // `nonzero_dim` → [size, rank] padded with fill_value.
+        let out = call_fn(
+            &aten_generated::NonzeroDim,
+            &[tensor(&[2], &[0.0, 1.0]), json!(2), json!(-1)],
+        )
+        .unwrap();
+        assert_eq!(out, tensor(&[2, 1], &[1.0, -1.0]));
+        // size < nnz still fails loudly.
+        assert!(call_fn(
+            &aten_generated::NonzeroDim,
+            &[tensor(&[2], &[1.0, 2.0]), json!(1)],
+        )
+        .is_err());
     }
 }

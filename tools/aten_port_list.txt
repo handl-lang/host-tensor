@@ -210,8 +210,8 @@ tensor.avg_pool2d   = aten::avg_pool2d
 tensor.empty        = aten::empty         # seam: uninitialized fill (wire needs concrete values)
 tensor.rand         = aten::rand          # seam: RNG (no Generator on wire; nondeterminism breaks verification)
 tensor.normal       = aten::normal        # seam: RNG
-tensor.unique       = aten::_unique       # seam: (values,indices,inverse) tuple; private schema
-tensor.nonzero_dim  = aten::nonzero_static # seam: dim-arg variant, tuple ret
+tensor.unique       = aten::_unique       # private schema, pure 2-tuple — k_unique
+tensor.nonzero_dim  = aten::nonzero_static # sized variant — k_nonzero_static pads with fill_value
 
 # --- seam closures: handwritten kernels (docs/reports/aten_seam_closure.md) --
 # einsum: `str equation` is a required arg of an unsupported type — the

@@ -967,7 +967,7 @@ op "tensor.normal" : Value... -> Value
 op "tensor.unique" : Value... -> Value
   guarantee: True
 --- aten::nonzero_static(Tensor self, *, SymInt size, int fill_value=-1) -> Tensor
-op "tensor.nonzero_dim" : Value... -> Value
+op "tensor.nonzero_dim" : Value... -> Tensor
   guarantee: True
 --- aten::einsum(str equation, Tensor[] tensors, *, int[]? path=None) -> Tensor
 op "tensor.einsum" : Value... -> Tensor

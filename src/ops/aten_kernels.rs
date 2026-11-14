@@ -4495,6 +4495,85 @@ pub(crate) fn k_pdist(t: &Tensor, p: f64) -> Result<Tensor, EvalError> {
     }
 }
 
+/// `unique` — `aten::_unique(self, sorted=True, return_inverse=False)`
+/// → `{"values", "indices"}` (the ATen 2-tuple record encoding, same as
+/// `sort`/`topk`). Flat semantics over the row-major data: `values` is
+/// the 1-D unique elements, `indices` the flat index of each value's
+/// first occurrence. `sorted=True` orders values ascending with NaN
+/// last; NaN compares equal to NaN (documented total order — torch
+/// treats NaNs as one unique value). `sorted=False` orders by first
+/// occurrence. `return_inverse` is accepted for schema parity but
+/// inert: `_unique` never returns the inverse (torch computes it via
+/// `_unique2`), so the flag cannot change this op's output.
+pub(crate) fn k_unique(args: &[serde_json::Value]) -> Result<serde_json::Value, EvalError> {
+    use super::codec::require_tensor;
+    let a = require_tensor(args, 0)?;
+    let sorted = opt_bool(args.get(1), true)?;
+    let _return_inverse = opt_bool(args.get(2), false)?;
+    // Decorate (value, flat index); stable sort keeps index order inside
+    // each equivalence class, so the first of a run is the first
+    // occurrence. Total order: non-NaN < NaN, NaN == NaN.
+    let mut pairs: Vec<(f64, usize)> = a.data.iter().copied().enumerate().map(|(i, v)| (v, i)).collect();
+    pairs.sort_by(|x, y| {
+        let (a, b) = (x.0, y.0);
+        match (a.is_nan(), b.is_nan()) {
+            (true, true) => std::cmp::Ordering::Equal,
+            (true, false) => std::cmp::Ordering::Greater,
+            (false, true) => std::cmp::Ordering::Less,
+            (false, false) => a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal),
+        }
+    });
+    let mut vals: Vec<f64> = Vec::new();
+    let mut idxs: Vec<f64> = Vec::new();
+    for &(v, i) in &pairs {
+        let dup = match vals.last() {
+            Some(&lv) => v == lv || (v.is_nan() && lv.is_nan()),
+            None => false,
+        };
+        if !dup {
+            vals.push(v);
+            idxs.push(i as f64);
+        }
+    }
+    if !sorted {
+        // First-occurrence order: sort the kept entries by flat index.
+        let mut order: Vec<usize> = (0..vals.len()).collect();
+        order.sort_by_key(|&k| idxs[k] as i64);
+        vals = order.iter().map(|&k| vals[k]).collect();
+        idxs = order.iter().map(|&k| idxs[k]).collect();
+    }
+    let nu = vals.len();
+    Ok(json!({
+        "values": enc(Tensor { shape: vec![nu], data: vals }),
+        "indices": enc(Tensor { shape: vec![nu], data: idxs }),
+    }))
+}
+
+/// `nonzero_dim` — `aten::nonzero_static(self, *, size, fill_value=-1)`:
+/// the sized variant of `nonzero` — a `[size, rank]` tensor whose first
+/// `nnz` rows are the nonzero coords (same row-major order as
+/// `nonzero`) and whose remaining rows are `fill_value`. `size < nnz`
+/// is an error: the ATen contract trusts the caller's capacity hint.
+pub(crate) fn k_nonzero_static(args: &[serde_json::Value]) -> Result<serde_json::Value, EvalError> {
+    use super::codec::require_tensor;
+    let a = require_tensor(args, 0)?;
+    let size = usize::try_from(req_i64(arg_at(args, 1)?)?)
+        .map_err(|_| op_err("nonzero_dim", "size must be a non-negative integer"))?;
+    let fill = opt_i64(args.get(2), -1)? as f64;
+    let nz = nonzero_impl(&a)?;
+    let nnz = nz.shape.first().copied().unwrap_or(0);
+    let rank = nz.shape.get(1).copied().unwrap_or(0);
+    if nnz > size {
+        return Err(op_err(
+            "nonzero_dim",
+            format!("size={size} cannot hold nnz={nnz} index rows"),
+        ));
+    }
+    let mut data = nz.data;
+    data.extend(std::iter::repeat(fill).take((size - nnz) * rank));
+    Ok(enc(Tensor { shape: vec![size, rank], data }))
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -4797,5 +4876,48 @@ mod tests {
         let pd = k_pdist(&x1, 2.0).unwrap();
         assert_eq!(pd.shape, vec![1]);
         assert!((pd.data[0] - 5.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn unique_sorted_and_unsorted() {
+        // 2-D input flattens row-major: [1,2,1,3,2] → values [1,2,3],
+        // indices of first occurrence [0,1,3].
+        let a = t(&[2, 3], &[3.0, 1.0, 2.0, 1.0, 2.0, 3.0]);
+        // data order is [3,1,2,1,2,3] → sorted unique [1,2,3] @ [1,2,0]
+        let out = k_unique(&[encode_tensor(a.clone()), json!(true)]).unwrap();
+        assert_eq!(out["values"], encode_tensor(t(&[3], &[1.0, 2.0, 3.0])));
+        assert_eq!(out["indices"], encode_tensor(t(&[3], &[1.0, 2.0, 0.0])));
+        // sorted=false → first-occurrence order [3,1,2] @ [0,1,2]
+        let out = k_unique(&[encode_tensor(a), json!(false)]).unwrap();
+        assert_eq!(out["values"], encode_tensor(t(&[3], &[3.0, 1.0, 2.0])));
+        assert_eq!(out["indices"], encode_tensor(t(&[3], &[0.0, 1.0, 2.0])));
+        // defaults: sorted=true, return_inverse inert.
+        let out = k_unique(&[encode_tensor(t(&[4], &[2.0, 1.0, 2.0, 1.0])), json!(true), json!(true)]).unwrap();
+        assert_eq!(out["values"], encode_tensor(t(&[2], &[1.0, 2.0])));
+        assert_eq!(out["indices"], encode_tensor(t(&[2], &[1.0, 0.0])));
+        // empty input → empty outputs.
+        let out = k_unique(&[encode_tensor(t(&[0], &[]))]).unwrap();
+        assert_eq!(out["values"], encode_tensor(t(&[0], &[])));
+        assert_eq!(out["indices"], encode_tensor(t(&[0], &[])));
+    }
+
+    #[test]
+    fn nonzero_static_pads_and_bounds() {
+        // 1 nonzero in a [2,2] → nnz=1; size=3 pads one fill row.
+        let a = t(&[2, 2], &[0.0, 5.0, 0.0, 0.0]);
+        let out = k_nonzero_static(&[encode_tensor(a.clone()), json!(3), json!(-1)]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap(), t(&[3, 2], &[0.0, 1.0, -1.0, -1.0, -1.0, -1.0]));
+        // default fill_value = -1.
+        let out = k_nonzero_static(&[encode_tensor(a.clone()), json!(2)]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap(), t(&[2, 2], &[0.0, 1.0, -1.0, -1.0]));
+        // size == nnz → identical to nonzero.
+        let out = k_nonzero_static(&[encode_tensor(a.clone()), json!(1)]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap(), nonzero_impl(&a).unwrap());
+        // size < nnz → loud error.
+        let b = t(&[2], &[1.0, 2.0]);
+        assert!(k_nonzero_static(&[encode_tensor(b), json!(1)]).is_err());
+        // custom fill.
+        let out = k_nonzero_static(&[encode_tensor(t(&[1], &[0.0])), json!(2), json!(7)]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap(), t(&[2, 1], &[7.0, 7.0]));
     }
 }

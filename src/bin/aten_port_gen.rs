@@ -567,6 +567,11 @@ const MAP: &[MapEntry] = &[
     MapEntry { hnl: "meshgrid", emit: Emit::Value, call: "aten_kernels::k_meshgrid(&v0)", dims: &[], dims_req: &[], arity: None, sig: None },
     m("corrcoef", Emit::Tensor, "aten_kernels::k_corrcoef(&v0)"),
     MapEntry { hnl: "to", emit: Emit::Raw, call: "aten_kernels::k_to(args)", dims: &[], dims_req: &[], arity: None, sig: Some("Value... -> Tensor") },
+    // unique/nonzero_dim closures (formerly `# seam` entries): `_unique`
+    // is private-named but a pure functional 2-tuple; `nonzero_static`
+    // is the sized/padded variant of `nonzero`.
+    MapEntry { hnl: "unique", emit: Emit::Raw, call: "aten_kernels::k_unique(args)", dims: &[], dims_req: &[], arity: Some((1, 3)), sig: Some("Value... -> Value") },
+    MapEntry { hnl: "nonzero_dim", emit: Emit::Raw, call: "aten_kernels::k_nonzero_static(args)", dims: &[], dims_req: &[], arity: Some((2, 3)), sig: Some("Value... -> Tensor") },
     // --- promotions: trivially supported by existing kernels ---------------
     MapEntry { hnl: "max", emit: Emit::Raw, call: "aten_kernels::k_max_min(args, true)", dims: &[], dims_req: &[], arity: Some((1, 3)), sig: Some("Value... -> Value") },
     MapEntry { hnl: "min", emit: Emit::Raw, call: "aten_kernels::k_max_min(args, false)", dims: &[], dims_req: &[], arity: Some((1, 3)), sig: Some("Value... -> Value") },
@@ -654,7 +659,7 @@ fn is_out_or_inplace(s: &Schema) -> bool {
     s.overload == "out"
         || s.schema.contains(".out(")
         || s.name.ends_with('_')
-        || s.name.starts_with('_')
+        || (s.name.starts_with('_') && s.name != "_unique") // `_unique` is private-named but a pure functional 2-tuple — k_unique covers it; other `_` schemas stay excluded
         || s.args.iter().any(|a| a.mutated || a.ty.contains('!'))
         || s.ret.contains('!')
 }
