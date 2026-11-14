@@ -128,6 +128,203 @@ cap "tensor.concat"
 cap "tensor.concat_backward"
 cap "tensor.batch_norm_backward"
 cap "tensor.derive"
+--- ATEN-PORT-GEN:BEGIN caps
+cap "tensor.abs"
+cap "tensor.neg"
+cap "tensor.exp"
+cap "tensor.exp2"
+cap "tensor.expm1"
+cap "tensor.log"
+cap "tensor.log1p"
+cap "tensor.log2"
+cap "tensor.log10"
+cap "tensor.sqrt"
+cap "tensor.rsqrt"
+cap "tensor.reciprocal"
+cap "tensor.square"
+cap "tensor.sin"
+cap "tensor.cos"
+cap "tensor.tan"
+cap "tensor.asin"
+cap "tensor.acos"
+cap "tensor.atan"
+cap "tensor.sinh"
+cap "tensor.cosh"
+cap "tensor.tanh"
+cap "tensor.asinh"
+cap "tensor.acosh"
+cap "tensor.atanh"
+cap "tensor.floor"
+cap "tensor.ceil"
+cap "tensor.round"
+cap "tensor.trunc"
+cap "tensor.frac"
+cap "tensor.sign"
+cap "tensor.sigmoid"
+cap "tensor.silu"
+cap "tensor.mish"
+cap "tensor.gelu"
+cap "tensor.relu"
+cap "tensor.selu"
+cap "tensor.elu"
+cap "tensor.celu"
+cap "tensor.leaky_relu"
+cap "tensor.prelu"
+cap "tensor.softplus"
+cap "tensor.softshrink"
+cap "tensor.hardshrink"
+cap "tensor.hardtanh"
+cap "tensor.threshold"
+cap "tensor.erf"
+cap "tensor.erfc"
+cap "tensor.sinc"
+cap "tensor.deg2rad"
+cap "tensor.rad2deg"
+cap "tensor.logit"
+cap "tensor.nan_to_num"
+cap "tensor.heaviside"
+cap "tensor.isfinite"
+cap "tensor.isinf"
+cap "tensor.isnan"
+cap "tensor.isposinf"
+cap "tensor.isneginf"
+cap "tensor.signbit"
+cap "tensor.logical_not"
+cap "tensor.atan2"
+cap "tensor.hypot"
+cap "tensor.logaddexp"
+cap "tensor.logaddexp2"
+cap "tensor.maximum"
+cap "tensor.minimum"
+cap "tensor.nextafter"
+cap "tensor.fmod"
+cap "tensor.floor_divide"
+cap "tensor.copysign"
+cap "tensor.remainder"
+cap "tensor.pow"
+cap "tensor.float_power"
+cap "tensor.eq"
+cap "tensor.ne"
+cap "tensor.lt"
+cap "tensor.le"
+cap "tensor.gt"
+cap "tensor.ge"
+cap "tensor.where"
+cap "tensor.clamp"
+cap "tensor.clamp_min"
+cap "tensor.clamp_max"
+cap "tensor.lerp"
+cap "tensor.xlogy"
+cap "tensor.logical_and"
+cap "tensor.logical_or"
+cap "tensor.logical_xor"
+cap "tensor.sum"
+cap "tensor.prod"
+cap "tensor.mean"
+cap "tensor.var"
+cap "tensor.std"
+cap "tensor.amax"
+cap "tensor.amin"
+cap "tensor.argmax"
+cap "tensor.argmin"
+cap "tensor.logsumexp"
+cap "tensor.all"
+cap "tensor.any"
+cap "tensor.cumsum"
+cap "tensor.cumprod"
+cap "tensor.softmax"
+cap "tensor.log_softmax"
+cap "tensor.layer_norm"
+cap "tensor.rms_norm"
+cap "tensor.glu"
+cap "tensor.sort"
+cap "tensor.argsort"
+cap "tensor.topk"
+cap "tensor.nonzero"
+cap "tensor.argwhere"
+cap "tensor.squeeze"
+cap "tensor.index_select"
+cap "tensor.gather"
+cap "tensor.index_add"
+cap "tensor.index_fill"
+cap "tensor.take"
+cap "tensor.flatten"
+cap "tensor.expand"
+cap "tensor.expand_as"
+cap "tensor.narrow"
+cap "tensor.slice"
+cap "tensor.chunk"
+cap "tensor.split"
+cap "tensor.stack"
+cap "tensor.unbind"
+cap "tensor.repeat"
+cap "tensor.flip"
+cap "tensor.triu"
+cap "tensor.tril"
+cap "tensor.diag"
+cap "tensor.diagonal"
+cap "tensor.trace"
+cap "tensor.t"
+cap "tensor.mT"
+cap "tensor.swapaxes"
+cap "tensor.moveaxis"
+cap "tensor.rot90"
+cap "tensor.contiguous"
+cap "tensor.clone"
+cap "tensor.detach"
+cap "tensor.view"
+cap "tensor.pixel_shuffle"
+cap "tensor.pixel_unshuffle"
+cap "tensor.constant_pad_nd"
+cap "tensor.mm"
+cap "tensor.bmm"
+cap "tensor.addmm"
+cap "tensor.addbmm"
+cap "tensor.baddbmm"
+cap "tensor.mv"
+cap "tensor.dot"
+cap "tensor.vdot"
+cap "tensor.ger"
+cap "tensor.outer"
+cap "tensor.addr"
+cap "tensor.addmv"
+cap "tensor.full"
+cap "tensor.full_like"
+cap "tensor.zeros_like"
+cap "tensor.ones_like"
+cap "tensor.arange"
+cap "tensor.linspace"
+cap "tensor.logspace"
+cap "tensor.eye"
+cap "tensor.size"
+cap "tensor.stride"
+cap "tensor.numel"
+cap "tensor.dim"
+cap "tensor.item"
+cap "tensor.is_contiguous"
+cap "tensor.avg_pool2d"
+cap "tensor.einsum"
+cap "tensor.tensordot"
+cap "tensor.kron"
+cap "tensor.cross"
+cap "tensor.norm"
+cap "tensor.renorm"
+cap "tensor.normalize"
+cap "tensor.median"
+cap "tensor.mode"
+cap "tensor.kthvalue"
+cap "tensor.quantile"
+cap "tensor.searchsorted"
+cap "tensor.bincount"
+cap "tensor.meshgrid"
+cap "tensor.corrcoef"
+cap "tensor.empty"
+cap "tensor.rand"
+cap "tensor.normal"
+cap "tensor.to"
+cap "tensor.unique"
+cap "tensor.nonzero_dim"
+--- ATEN-PORT-GEN:END caps
 op "tensor.zeros" : (List Int) -> Tensor
   guarantee: True
 op "tensor.ones" : (List Int) -> Tensor
@@ -222,6 +419,593 @@ op "tensor.batch_norm_backward" : Value... -> Value
   guarantee: True
 op "tensor.derive" : String -> Value
   guarantee: True
+--- ATEN-PORT-GEN:BEGIN ops
+--- aten::abs(Tensor self) -> Tensor
+op "tensor.abs" : Tensor -> Tensor
+  guarantee: True
+--- aten::neg(Tensor self) -> Tensor
+op "tensor.neg" : Tensor -> Tensor
+  guarantee: True
+--- aten::exp(Tensor self) -> Tensor
+op "tensor.exp" : Tensor -> Tensor
+  guarantee: True
+--- aten::exp2(Tensor self) -> Tensor
+op "tensor.exp2" : Tensor -> Tensor
+  guarantee: True
+--- aten::expm1(Tensor self) -> Tensor
+op "tensor.expm1" : Tensor -> Tensor
+  guarantee: True
+--- aten::log(Tensor self) -> Tensor
+op "tensor.log" : Tensor -> Tensor
+  guarantee: True
+--- aten::log1p(Tensor self) -> Tensor
+op "tensor.log1p" : Tensor -> Tensor
+  guarantee: True
+--- aten::log2(Tensor self) -> Tensor
+op "tensor.log2" : Tensor -> Tensor
+  guarantee: True
+--- aten::log10(Tensor self) -> Tensor
+op "tensor.log10" : Tensor -> Tensor
+  guarantee: True
+--- aten::sqrt(Tensor self) -> Tensor
+op "tensor.sqrt" : Tensor -> Tensor
+  guarantee: True
+--- aten::rsqrt(Tensor self) -> Tensor
+op "tensor.rsqrt" : Tensor -> Tensor
+  guarantee: True
+--- aten::reciprocal(Tensor self) -> Tensor
+op "tensor.reciprocal" : Tensor -> Tensor
+  guarantee: True
+--- aten::square(Tensor self) -> Tensor
+op "tensor.square" : Tensor -> Tensor
+  guarantee: True
+--- aten::sin(Tensor self) -> Tensor
+op "tensor.sin" : Tensor -> Tensor
+  guarantee: True
+--- aten::cos(Tensor self) -> Tensor
+op "tensor.cos" : Tensor -> Tensor
+  guarantee: True
+--- aten::tan(Tensor self) -> Tensor
+op "tensor.tan" : Tensor -> Tensor
+  guarantee: True
+--- aten::asin(Tensor self) -> Tensor
+op "tensor.asin" : Tensor -> Tensor
+  guarantee: True
+--- aten::acos(Tensor self) -> Tensor
+op "tensor.acos" : Tensor -> Tensor
+  guarantee: True
+--- aten::atan(Tensor self) -> Tensor
+op "tensor.atan" : Tensor -> Tensor
+  guarantee: True
+--- aten::sinh(Tensor self) -> Tensor
+op "tensor.sinh" : Tensor -> Tensor
+  guarantee: True
+--- aten::cosh(Tensor self) -> Tensor
+op "tensor.cosh" : Tensor -> Tensor
+  guarantee: True
+--- aten::tanh(Tensor self) -> Tensor
+op "tensor.tanh" : Tensor -> Tensor
+  guarantee: True
+--- aten::asinh(Tensor self) -> Tensor
+op "tensor.asinh" : Tensor -> Tensor
+  guarantee: True
+--- aten::acosh(Tensor self) -> Tensor
+op "tensor.acosh" : Tensor -> Tensor
+  guarantee: True
+--- aten::atanh(Tensor self) -> Tensor
+op "tensor.atanh" : Tensor -> Tensor
+  guarantee: True
+--- aten::floor(Tensor self) -> Tensor
+op "tensor.floor" : Tensor -> Tensor
+  guarantee: True
+--- aten::ceil(Tensor self) -> Tensor
+op "tensor.ceil" : Tensor -> Tensor
+  guarantee: True
+--- aten::round(Tensor self) -> Tensor
+op "tensor.round" : Tensor -> Tensor
+  guarantee: True
+--- aten::trunc(Tensor self) -> Tensor
+op "tensor.trunc" : Tensor -> Tensor
+  guarantee: True
+--- aten::frac(Tensor self) -> Tensor
+op "tensor.frac" : Tensor -> Tensor
+  guarantee: True
+--- aten::sign(Tensor self) -> Tensor
+op "tensor.sign" : Tensor -> Tensor
+  guarantee: True
+--- aten::sigmoid(Tensor self) -> Tensor
+op "tensor.sigmoid" : Tensor -> Tensor
+  guarantee: True
+--- aten::silu(Tensor self) -> Tensor
+op "tensor.silu" : Tensor -> Tensor
+  guarantee: True
+--- aten::mish(Tensor self) -> Tensor
+op "tensor.mish" : Tensor -> Tensor
+  guarantee: True
+--- aten::gelu(Tensor self, *, str approximate="none") -> Tensor
+op "tensor.gelu" : Value... -> Tensor
+  guarantee: True
+--- aten::relu(Tensor self) -> Tensor
+op "tensor.relu" : Tensor -> Tensor
+  guarantee: True
+--- aten::selu(Tensor self) -> Tensor
+op "tensor.selu" : Tensor -> Tensor
+  guarantee: True
+--- aten::elu(Tensor self, Scalar alpha=1, Scalar scale=1, Scalar input_scale=1) -> Tensor
+op "tensor.elu" : Value... -> Tensor
+  guarantee: True
+--- aten::celu(Tensor self, Scalar alpha=1.) -> Tensor
+op "tensor.celu" : Value... -> Tensor
+  guarantee: True
+--- aten::leaky_relu(Tensor self, Scalar negative_slope=0.01) -> Tensor
+op "tensor.leaky_relu" : Value... -> Tensor
+  guarantee: True
+--- aten::prelu(Tensor self, Tensor weight) -> Tensor
+op "tensor.prelu" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::softplus(Tensor self, Scalar beta=1, Scalar threshold=20) -> Tensor
+op "tensor.softplus" : Value... -> Tensor
+  guarantee: True
+--- aten::softshrink(Tensor self, Scalar lambd=0.5) -> Tensor
+op "tensor.softshrink" : Value... -> Tensor
+  guarantee: True
+--- aten::hardshrink(Tensor self, Scalar lambd=0.5) -> Tensor
+op "tensor.hardshrink" : Value... -> Tensor
+  guarantee: True
+--- aten::hardtanh(Tensor self, Scalar min_val=-1, Scalar max_val=1) -> Tensor
+op "tensor.hardtanh" : Value... -> Tensor
+  guarantee: True
+--- aten::threshold(Tensor self, Scalar threshold, Scalar value) -> Tensor
+op "tensor.threshold" : (Tensor * Float * Float) -> Tensor
+  guarantee: True
+--- aten::erf(Tensor self) -> Tensor
+op "tensor.erf" : Tensor -> Tensor
+  guarantee: True
+--- aten::erfc(Tensor self) -> Tensor
+op "tensor.erfc" : Tensor -> Tensor
+  guarantee: True
+--- aten::sinc(Tensor self) -> Tensor
+op "tensor.sinc" : Tensor -> Tensor
+  guarantee: True
+--- aten::deg2rad(Tensor self) -> Tensor
+op "tensor.deg2rad" : Tensor -> Tensor
+  guarantee: True
+--- aten::rad2deg(Tensor self) -> Tensor
+op "tensor.rad2deg" : Tensor -> Tensor
+  guarantee: True
+--- aten::logit(Tensor self, float? eps=None) -> Tensor
+op "tensor.logit" : Value... -> Tensor
+  guarantee: True
+--- aten::nan_to_num(Tensor self, float? nan=None, float? posinf=None, float? neginf=None) -> Tensor
+op "tensor.nan_to_num" : Value... -> Tensor
+  guarantee: True
+--- aten::heaviside(Tensor self, Tensor values) -> Tensor
+op "tensor.heaviside" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::isfinite(Tensor self) -> Tensor
+op "tensor.isfinite" : Tensor -> Tensor
+  guarantee: True
+--- aten::isinf(Tensor self) -> Tensor
+op "tensor.isinf" : Tensor -> Tensor
+  guarantee: True
+--- aten::isnan(Tensor self) -> Tensor
+op "tensor.isnan" : Tensor -> Tensor
+  guarantee: True
+--- aten::isposinf(Tensor self) -> Tensor
+op "tensor.isposinf" : Tensor -> Tensor
+  guarantee: True
+--- aten::isneginf(Tensor self) -> Tensor
+op "tensor.isneginf" : Tensor -> Tensor
+  guarantee: True
+--- aten::signbit(Tensor self) -> Tensor
+op "tensor.signbit" : Tensor -> Tensor
+  guarantee: True
+--- aten::logical_not(Tensor self) -> Tensor
+op "tensor.logical_not" : Tensor -> Tensor
+  guarantee: True
+--- aten::atan2(Tensor self, Tensor other) -> Tensor
+op "tensor.atan2" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::hypot(Tensor self, Tensor other) -> Tensor
+op "tensor.hypot" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::logaddexp(Tensor self, Tensor other) -> Tensor
+op "tensor.logaddexp" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::logaddexp2(Tensor self, Tensor other) -> Tensor
+op "tensor.logaddexp2" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::maximum(Tensor self, Tensor other) -> Tensor
+op "tensor.maximum" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::minimum(Tensor self, Tensor other) -> Tensor
+op "tensor.minimum" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::nextafter(Tensor self, Tensor other) -> Tensor
+op "tensor.nextafter" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::fmod.Tensor(Tensor self, Tensor other) -> Tensor
+op "tensor.fmod" : Value... -> Tensor
+  guarantee: True
+--- aten::floor_divide(Tensor self, Tensor other) -> Tensor
+op "tensor.floor_divide" : Value... -> Tensor
+  guarantee: True
+--- aten::copysign.Tensor(Tensor self, Tensor other) -> Tensor
+op "tensor.copysign" : Value... -> Tensor
+  guarantee: True
+--- aten::remainder.Tensor(Tensor self, Tensor other) -> Tensor
+op "tensor.remainder" : Value... -> Tensor
+  guarantee: True
+--- aten::pow.Tensor_Tensor(Tensor self, Tensor exponent) -> Tensor
+op "tensor.pow" : Value... -> Tensor
+  guarantee: True
+--- aten::float_power.Tensor_Tensor(Tensor self, Tensor exponent) -> Tensor
+op "tensor.float_power" : Value... -> Tensor
+  guarantee: True
+--- aten::eq.Tensor(Tensor self, Tensor other) -> Tensor
+op "tensor.eq" : Value... -> Tensor
+  guarantee: True
+--- aten::ne.Tensor(Tensor self, Tensor other) -> Tensor
+op "tensor.ne" : Value... -> Tensor
+  guarantee: True
+--- aten::lt.Tensor(Tensor self, Tensor other) -> Tensor
+op "tensor.lt" : Value... -> Tensor
+  guarantee: True
+--- aten::le.Tensor(Tensor self, Tensor other) -> Tensor
+op "tensor.le" : Value... -> Tensor
+  guarantee: True
+--- aten::gt.Tensor(Tensor self, Tensor other) -> Tensor
+op "tensor.gt" : Value... -> Tensor
+  guarantee: True
+--- aten::ge.Tensor(Tensor self, Tensor other) -> Tensor
+op "tensor.ge" : Value... -> Tensor
+  guarantee: True
+--- aten::where.self(Tensor condition, Tensor self, Tensor other) -> Tensor
+op "tensor.where" : Value... -> Tensor
+  guarantee: True
+--- aten::clamp(Tensor self, Scalar? min=None, Scalar? max=None) -> Tensor
+op "tensor.clamp" : Value... -> Tensor
+  guarantee: True
+--- aten::clamp_min(Tensor self, Scalar min) -> Tensor
+op "tensor.clamp_min" : (Tensor * Float) -> Tensor
+  guarantee: True
+--- aten::clamp_max(Tensor self, Scalar max) -> Tensor
+op "tensor.clamp_max" : (Tensor * Float) -> Tensor
+  guarantee: True
+--- aten::lerp.Tensor(Tensor self, Tensor end, Tensor weight) -> Tensor
+op "tensor.lerp" : Value... -> Tensor
+  guarantee: True
+--- aten::xlogy.Tensor(Tensor self, Tensor other) -> Tensor
+op "tensor.xlogy" : Value... -> Tensor
+  guarantee: True
+--- aten::logical_and(Tensor self, Tensor other) -> Tensor
+op "tensor.logical_and" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::logical_or(Tensor self, Tensor other) -> Tensor
+op "tensor.logical_or" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::logical_xor(Tensor self, Tensor other) -> Tensor
+op "tensor.logical_xor" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::sum.dim_IntList(Tensor self, int[1]? dim, bool keepdim=False, *, ScalarType? dtype=None) -> Tensor
+op "tensor.sum" : Value... -> Tensor
+  guarantee: True
+--- aten::prod.dim_int(Tensor self, int dim, bool keepdim=False, *, ScalarType? dtype=None) -> Tensor
+op "tensor.prod" : Value... -> Tensor
+  guarantee: True
+--- aten::mean.dim(Tensor self, int[1]? dim, bool keepdim=False, *, ScalarType? dtype=None) -> Tensor
+op "tensor.mean" : Value... -> Tensor
+  guarantee: True
+--- aten::var.dim(Tensor self, int[1]? dim, bool unbiased=True, bool keepdim=False) -> Tensor
+op "tensor.var" : Value... -> Tensor
+  guarantee: True
+--- aten::std.dim(Tensor self, int[1]? dim, bool unbiased=True, bool keepdim=False) -> Tensor
+op "tensor.std" : Value... -> Tensor
+  guarantee: True
+--- aten::amax(Tensor self, int[1] dim=[], bool keepdim=False) -> Tensor
+op "tensor.amax" : Value... -> Tensor
+  guarantee: True
+--- aten::amin(Tensor self, int[1] dim=[], bool keepdim=False) -> Tensor
+op "tensor.amin" : Value... -> Tensor
+  guarantee: True
+--- aten::argmax(Tensor self, int? dim=None, bool keepdim=False) -> Tensor
+op "tensor.argmax" : Value... -> Tensor
+  guarantee: True
+--- aten::argmin(Tensor self, int? dim=None, bool keepdim=False) -> Tensor
+op "tensor.argmin" : Value... -> Tensor
+  guarantee: True
+--- aten::logsumexp(Tensor self, int[1] dim, bool keepdim=False) -> Tensor
+op "tensor.logsumexp" : Value... -> Tensor
+  guarantee: True
+--- aten::all.dims(Tensor self, int[]? dim=None, bool keepdim=False) -> Tensor
+op "tensor.all" : Value... -> Tensor
+  guarantee: True
+--- aten::any.dims(Tensor self, int[]? dim=None, bool keepdim=False) -> Tensor
+op "tensor.any" : Value... -> Tensor
+  guarantee: True
+--- aten::cumsum(Tensor self, int dim, *, ScalarType? dtype=None) -> Tensor
+op "tensor.cumsum" : (Tensor * Int) -> Tensor
+  guarantee: True
+--- aten::cumprod(Tensor self, int dim, *, ScalarType? dtype=None) -> Tensor
+op "tensor.cumprod" : (Tensor * Int) -> Tensor
+  guarantee: True
+--- aten::softmax.int(Tensor self, int dim, ScalarType? dtype=None) -> Tensor
+op "tensor.softmax" : (Tensor * Int) -> Tensor
+  guarantee: True
+--- aten::log_softmax.int(Tensor self, int dim, ScalarType? dtype=None) -> Tensor
+op "tensor.log_softmax" : (Tensor * Int) -> Tensor
+  guarantee: True
+--- aten::layer_norm(Tensor input, SymInt[] normalized_shape, Tensor? weight=None, Tensor? bias=None, float eps=1.0000000000000001e-05, bool cudnn_enable=True) -> Tensor
+op "tensor.layer_norm" : Value... -> Tensor
+  guarantee: True
+--- aten::rms_norm(Tensor input, SymInt[] normalized_shape, Tensor? weight=None, float? eps=None) -> Tensor
+op "tensor.rms_norm" : Value... -> Tensor
+  guarantee: True
+--- aten::glu(Tensor self, int dim=-1) -> Tensor
+op "tensor.glu" : Value... -> Tensor
+  guarantee: True
+--- aten::sort(Tensor self, int dim=-1, bool descending=False) -> (Tensor values, Tensor indices)
+op "tensor.sort" : Value... -> Value
+  guarantee: True
+--- aten::argsort(Tensor self, int dim=-1, bool descending=False) -> Tensor
+op "tensor.argsort" : Value... -> Tensor
+  guarantee: True
+--- aten::topk(Tensor self, SymInt k, int dim=-1, bool largest=True, bool sorted=True) -> (Tensor values, Tensor indices)
+op "tensor.topk" : Value... -> Value
+  guarantee: True
+--- aten::nonzero(Tensor self) -> Tensor
+op "tensor.nonzero" : Tensor -> Tensor
+  guarantee: True
+--- aten::argwhere(Tensor self) -> Tensor
+op "tensor.argwhere" : Tensor -> Tensor
+  guarantee: True
+--- aten::squeeze.dims(Tensor(a) self, int[] dim) -> Tensor(a)
+op "tensor.squeeze" : Value... -> Tensor
+  guarantee: True
+--- aten::index_select(Tensor self, int dim, Tensor index) -> Tensor
+op "tensor.index_select" : (Tensor * Int * Tensor) -> Tensor
+  guarantee: True
+--- aten::gather(Tensor self, int dim, Tensor index, *, bool sparse_grad=False) -> Tensor
+op "tensor.gather" : Value... -> Tensor
+  guarantee: True
+--- aten::index_add(Tensor self, int dim, Tensor index, Tensor source, *, Scalar alpha=1) -> Tensor
+op "tensor.index_add" : Value... -> Tensor
+  guarantee: True
+--- aten::index_fill.int_Scalar(Tensor self, int dim, Tensor index, Scalar value) -> Tensor
+op "tensor.index_fill" : (Tensor * Int * Tensor * Float) -> Tensor
+  guarantee: True
+--- aten::take(Tensor self, Tensor index) -> Tensor
+op "tensor.take" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::flatten.using_ints(Tensor(a) self, int start_dim=0, int end_dim=-1) -> Tensor(a)
+op "tensor.flatten" : Value... -> Tensor
+  guarantee: True
+--- aten::expand(Tensor(a) self, SymInt[] size, *, bool implicit=False) -> Tensor(a)
+op "tensor.expand" : Value... -> Tensor
+  guarantee: True
+--- aten::expand_as(Tensor(a) self, Tensor other) -> Tensor(a)
+op "tensor.expand_as" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::narrow(Tensor(a) self, int dim, SymInt start, SymInt length) -> Tensor(a)
+op "tensor.narrow" : (Tensor * Int * Int * Int) -> Tensor
+  guarantee: True
+--- aten::slice.Tensor(Tensor(a) self, int dim=0, SymInt? start=None, SymInt? end=None, SymInt step=1) -> Tensor(a)
+op "tensor.slice" : Value... -> Tensor
+  guarantee: True
+--- aten::chunk(Tensor(a -> *) self, int chunks, int dim=0) -> Tensor(a)[]
+op "tensor.chunk" : Value... -> Array
+  guarantee: True
+--- aten::split(Tensor(a -> *) self, int[] split_sizes, int dim=0) -> Tensor(a)[]
+op "tensor.split" : Value... -> Array
+  guarantee: True
+--- aten::stack(Tensor[] tensors, int dim=0) -> Tensor
+op "tensor.stack" : Value... -> Tensor
+  guarantee: True
+--- aten::unbind.int(Tensor(a -> *) self, int dim=0) -> Tensor(a)[]
+op "tensor.unbind" : Value... -> Array
+  guarantee: True
+--- aten::repeat(Tensor self, SymInt[] repeats) -> Tensor
+op "tensor.repeat" : Value... -> Tensor
+  guarantee: True
+--- aten::flip(Tensor self, int[] dims) -> Tensor
+op "tensor.flip" : (Tensor * (List Int)) -> Tensor
+  guarantee: True
+--- aten::triu(Tensor self, SymInt diagonal=0) -> Tensor
+op "tensor.triu" : Value... -> Tensor
+  guarantee: True
+--- aten::tril(Tensor self, SymInt diagonal=0) -> Tensor
+op "tensor.tril" : Value... -> Tensor
+  guarantee: True
+--- aten::diag(Tensor self, int diagonal=0) -> Tensor
+op "tensor.diag" : Value... -> Tensor
+  guarantee: True
+--- aten::diagonal(Tensor(a) self, int offset=0, int dim1=0, int dim2=1) -> Tensor(a)
+op "tensor.diagonal" : Value... -> Tensor
+  guarantee: True
+--- aten::trace(Tensor self) -> Tensor
+op "tensor.trace" : Tensor -> Tensor
+  guarantee: True
+--- aten::t(Tensor(a) self) -> Tensor(a)
+op "tensor.t" : Tensor -> Tensor
+  guarantee: True
+--- aten::mT(Tensor(a) self) -> Tensor(a)
+op "tensor.mT" : Tensor -> Tensor
+  guarantee: True
+--- aten::swapaxes(Tensor(a) self, int axis0, int axis1) -> Tensor(a)
+op "tensor.swapaxes" : (Tensor * Int * Int) -> Tensor
+  guarantee: True
+--- aten::moveaxis.intlist(Tensor(a) self, int[] source, int[] destination) -> Tensor(a)
+op "tensor.moveaxis" : (Tensor * (List Int) * (List Int)) -> Tensor
+  guarantee: True
+--- aten::rot90(Tensor self, int k=1, int[] dims=[0, 1]) -> Tensor
+op "tensor.rot90" : Value... -> Tensor
+  guarantee: True
+--- aten::contiguous(Tensor(a) self, *, MemoryFormat memory_format=0) -> Tensor(a)
+op "tensor.contiguous" : Tensor -> Tensor
+  guarantee: True
+--- aten::clone(Tensor self, *, MemoryFormat? memory_format=None) -> Tensor
+op "tensor.clone" : Tensor -> Tensor
+  guarantee: True
+--- aten::detach(Tensor(a) self) -> Tensor(a)
+op "tensor.detach" : Tensor -> Tensor
+  guarantee: True
+--- aten::view(Tensor(a) self, SymInt[] size) -> Tensor(a)
+op "tensor.view" : Value... -> Tensor
+  guarantee: True
+--- aten::pixel_shuffle(Tensor self, int upscale_factor) -> Tensor
+op "tensor.pixel_shuffle" : (Tensor * Int) -> Tensor
+  guarantee: True
+--- aten::pixel_unshuffle(Tensor self, int downscale_factor) -> Tensor
+op "tensor.pixel_unshuffle" : (Tensor * Int) -> Tensor
+  guarantee: True
+--- aten::constant_pad_nd(Tensor self, SymInt[] pad, Scalar value=0) -> Tensor
+op "tensor.constant_pad_nd" : Value... -> Tensor
+  guarantee: True
+--- aten::mm(Tensor self, Tensor mat2) -> Tensor
+op "tensor.mm" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::bmm(Tensor self, Tensor mat2) -> Tensor
+op "tensor.bmm" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::addmm(Tensor self, Tensor mat1, Tensor mat2, *, Scalar beta=1, Scalar alpha=1) -> Tensor
+op "tensor.addmm" : Value... -> Tensor
+  guarantee: True
+--- aten::addbmm(Tensor self, Tensor batch1, Tensor batch2, *, Scalar beta=1, Scalar alpha=1) -> Tensor
+op "tensor.addbmm" : Value... -> Tensor
+  guarantee: True
+--- aten::baddbmm(Tensor self, Tensor batch1, Tensor batch2, *, Scalar beta=1, Scalar alpha=1) -> Tensor
+op "tensor.baddbmm" : Value... -> Tensor
+  guarantee: True
+--- aten::mv(Tensor self, Tensor vec) -> Tensor
+op "tensor.mv" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::dot(Tensor self, Tensor tensor) -> Tensor
+op "tensor.dot" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::vdot(Tensor self, Tensor other) -> Tensor
+op "tensor.vdot" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::ger(Tensor self, Tensor vec2) -> Tensor
+op "tensor.ger" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::outer(Tensor self, Tensor vec2) -> Tensor
+op "tensor.outer" : (Tensor * Tensor) -> Tensor
+  guarantee: True
+--- aten::addr(Tensor self, Tensor vec1, Tensor vec2, *, Scalar beta=1, Scalar alpha=1) -> Tensor
+op "tensor.addr" : Value... -> Tensor
+  guarantee: True
+--- aten::addmv(Tensor self, Tensor mat, Tensor vec, *, Scalar beta=1, Scalar alpha=1) -> Tensor
+op "tensor.addmv" : Value... -> Tensor
+  guarantee: True
+--- aten::full(SymInt[] size, Scalar fill_value, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None) -> Tensor
+op "tensor.full" : Value... -> Tensor
+  guarantee: True
+--- aten::full_like(Tensor self, Scalar fill_value, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None, MemoryFormat? memory_format=None) -> Tensor
+op "tensor.full_like" : Value... -> Tensor
+  guarantee: True
+--- aten::zeros_like(Tensor self, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None, MemoryFormat? memory_format=None) -> Tensor
+op "tensor.zeros_like" : Value... -> Tensor
+  guarantee: True
+--- aten::ones_like(Tensor self, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None, MemoryFormat? memory_format=None) -> Tensor
+op "tensor.ones_like" : Value... -> Tensor
+  guarantee: True
+--- aten::arange.start_step(Scalar start, Scalar end, Scalar step=1, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None) -> Tensor
+op "tensor.arange" : Value... -> Tensor
+  guarantee: True
+--- aten::linspace(Scalar start, Scalar end, int steps, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None) -> Tensor
+op "tensor.linspace" : Value... -> Tensor
+  guarantee: True
+--- aten::logspace(Scalar start, Scalar end, int steps, float base=10., *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None) -> Tensor
+op "tensor.logspace" : Value... -> Tensor
+  guarantee: True
+--- aten::eye.m(SymInt n, SymInt m, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None) -> Tensor
+op "tensor.eye" : Value... -> Tensor
+  guarantee: True
+--- aten::size(Tensor self) -> int[]
+op "tensor.size" : Value... -> Value
+  guarantee: True
+--- aten::stride(Tensor self) -> int[]
+op "tensor.stride" : Tensor -> (List Int)
+  guarantee: True
+--- aten::numel(Tensor self) -> int
+op "tensor.numel" : Tensor -> Int
+  guarantee: True
+--- aten::dim(Tensor self) -> int
+op "tensor.dim" : Tensor -> Int
+  guarantee: True
+--- aten::item(Tensor self) -> Scalar
+op "tensor.item" : Tensor -> Value
+  guarantee: True
+--- aten::is_contiguous(Tensor self) -> bool
+op "tensor.is_contiguous" : Tensor -> Bool
+  guarantee: True
+--- aten::avg_pool2d(Tensor self, int[2] kernel_size, int[2] stride=[], int[2] padding=0, bool ceil_mode=False, bool count_include_pad=True, int? divisor_override=None) -> Tensor
+op "tensor.avg_pool2d" : Value... -> Tensor
+  guarantee: True
+--- aten::einsum(str equation, Tensor[] tensors, *, int[]? path=None) -> Tensor
+op "tensor.einsum" : Value... -> Value
+  guarantee: True
+--- aten::tensordot(Tensor self, Tensor other, int[] dims_self, int[] dims_other) -> Tensor
+op "tensor.tensordot" : Value... -> Value
+  guarantee: True
+--- aten::kron(Tensor self, Tensor other) -> Tensor
+op "tensor.kron" : Value... -> Value
+  guarantee: True
+--- aten::cross(Tensor self, Tensor other, int? dim=None) -> Tensor
+op "tensor.cross" : Value... -> Value
+  guarantee: True
+--- aten::norm.Scalar(Tensor self, Scalar p=2) -> Tensor
+op "tensor.norm" : Value... -> Value
+  guarantee: True
+--- aten::renorm(Tensor self, Scalar p, int dim, Scalar maxnorm) -> Tensor
+op "tensor.renorm" : Value... -> Value
+  guarantee: True
+--- aten::linalg_vector_norm(Tensor self, Scalar ord=2, int[1]? dim=None, bool keepdim=False, *, ScalarType? dtype=None) -> Tensor
+op "tensor.normalize" : Value... -> Value
+  guarantee: True
+--- aten::median(Tensor self) -> Tensor
+op "tensor.median" : Value... -> Value
+  guarantee: True
+--- aten::mode(Tensor self, int dim=-1, bool keepdim=False) -> (Tensor values, Tensor indices)
+op "tensor.mode" : Value... -> Value
+  guarantee: True
+--- aten::kthvalue(Tensor self, SymInt k, int dim=-1, bool keepdim=False) -> (Tensor values, Tensor indices)
+op "tensor.kthvalue" : Value... -> Value
+  guarantee: True
+--- aten::quantile(Tensor self, Tensor q, int? dim=None, bool keepdim=False, *, str interpolation="linear") -> Tensor
+op "tensor.quantile" : Value... -> Value
+  guarantee: True
+--- aten::searchsorted.Scalar(Tensor sorted_sequence, Scalar self, *, bool out_int32=False, bool right=False, str? side=None, Tensor? sorter=None) -> Tensor
+op "tensor.searchsorted" : Value... -> Value
+  guarantee: True
+--- aten::bincount(Tensor self, Tensor? weights=None, SymInt minlength=0) -> Tensor
+op "tensor.bincount" : Value... -> Value
+  guarantee: True
+--- aten::meshgrid(Tensor[] tensors) -> Tensor[]
+op "tensor.meshgrid" : Value... -> Value
+  guarantee: True
+--- aten::corrcoef(Tensor self) -> Tensor
+op "tensor.corrcoef" : Value... -> Value
+  guarantee: True
+--- aten::empty.memory_format(SymInt[] size, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None, MemoryFormat? memory_format=None) -> Tensor
+op "tensor.empty" : Value... -> Value
+  guarantee: True
+--- aten::rand(SymInt[] size, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None) -> Tensor
+op "tensor.rand" : Value... -> Value
+  guarantee: True
+--- aten::normal.float_Tensor(float mean, Tensor std, *, Generator? generator=None) -> Tensor
+op "tensor.normal" : Value... -> Value
+  guarantee: True
+--- aten::to.dtype(Tensor(a) self, ScalarType dtype, bool non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)
+op "tensor.to" : Value... -> Value
+  guarantee: True
+--- aten::_unique(Tensor self, bool sorted=True, bool return_inverse=False) -> (Tensor, Tensor)
+op "tensor.unique" : Value... -> Value
+  guarantee: True
+--- aten::nonzero_static(Tensor self, *, SymInt size, int fill_value=-1) -> Tensor
+op "tensor.nonzero_dim" : Value... -> Value
+  guarantee: True
+--- ATEN-PORT-GEN:END ops
 handle "tensor.zeros" with rust_tensor_zeros
 handle "tensor.ones" with rust_tensor_ones
 handle "tensor.from_list" with rust_tensor_from_list
@@ -253,6 +1037,203 @@ handle "tensor.concat" with rust_tensor_concat
 handle "tensor.concat_backward" with rust_tensor_concat_backward
 handle "tensor.batch_norm_backward" with rust_tensor_batch_norm_backward
 handle "tensor.derive" with rust_tensor_derive
+--- ATEN-PORT-GEN:BEGIN handles
+handle "tensor.abs" with rust_abs
+handle "tensor.neg" with rust_neg
+handle "tensor.exp" with rust_exp
+handle "tensor.exp2" with rust_exp2
+handle "tensor.expm1" with rust_expm1
+handle "tensor.log" with rust_log
+handle "tensor.log1p" with rust_log1p
+handle "tensor.log2" with rust_log2
+handle "tensor.log10" with rust_log10
+handle "tensor.sqrt" with rust_sqrt
+handle "tensor.rsqrt" with rust_rsqrt
+handle "tensor.reciprocal" with rust_reciprocal
+handle "tensor.square" with rust_square
+handle "tensor.sin" with rust_sin
+handle "tensor.cos" with rust_cos
+handle "tensor.tan" with rust_tan
+handle "tensor.asin" with rust_asin
+handle "tensor.acos" with rust_acos
+handle "tensor.atan" with rust_atan
+handle "tensor.sinh" with rust_sinh
+handle "tensor.cosh" with rust_cosh
+handle "tensor.tanh" with rust_tanh
+handle "tensor.asinh" with rust_asinh
+handle "tensor.acosh" with rust_acosh
+handle "tensor.atanh" with rust_atanh
+handle "tensor.floor" with rust_floor
+handle "tensor.ceil" with rust_ceil
+handle "tensor.round" with rust_round
+handle "tensor.trunc" with rust_trunc
+handle "tensor.frac" with rust_frac
+handle "tensor.sign" with rust_sign
+handle "tensor.sigmoid" with rust_sigmoid
+handle "tensor.silu" with rust_silu
+handle "tensor.mish" with rust_mish
+handle "tensor.gelu" with rust_gelu
+handle "tensor.relu" with rust_relu
+handle "tensor.selu" with rust_selu
+handle "tensor.elu" with rust_elu
+handle "tensor.celu" with rust_celu
+handle "tensor.leaky_relu" with rust_leaky_relu
+handle "tensor.prelu" with rust_prelu
+handle "tensor.softplus" with rust_softplus
+handle "tensor.softshrink" with rust_softshrink
+handle "tensor.hardshrink" with rust_hardshrink
+handle "tensor.hardtanh" with rust_hardtanh
+handle "tensor.threshold" with rust_threshold
+handle "tensor.erf" with rust_erf
+handle "tensor.erfc" with rust_erfc
+handle "tensor.sinc" with rust_sinc
+handle "tensor.deg2rad" with rust_deg2rad
+handle "tensor.rad2deg" with rust_rad2deg
+handle "tensor.logit" with rust_logit
+handle "tensor.nan_to_num" with rust_nan_to_num
+handle "tensor.heaviside" with rust_heaviside
+handle "tensor.isfinite" with rust_isfinite
+handle "tensor.isinf" with rust_isinf
+handle "tensor.isnan" with rust_isnan
+handle "tensor.isposinf" with rust_isposinf
+handle "tensor.isneginf" with rust_isneginf
+handle "tensor.signbit" with rust_signbit
+handle "tensor.logical_not" with rust_logical_not
+handle "tensor.atan2" with rust_atan2
+handle "tensor.hypot" with rust_hypot
+handle "tensor.logaddexp" with rust_logaddexp
+handle "tensor.logaddexp2" with rust_logaddexp2
+handle "tensor.maximum" with rust_maximum
+handle "tensor.minimum" with rust_minimum
+handle "tensor.nextafter" with rust_nextafter
+handle "tensor.fmod" with rust_fmod
+handle "tensor.floor_divide" with rust_floor_divide
+handle "tensor.copysign" with rust_copysign
+handle "tensor.remainder" with rust_remainder
+handle "tensor.pow" with rust_pow
+handle "tensor.float_power" with rust_float_power
+handle "tensor.eq" with rust_eq
+handle "tensor.ne" with rust_ne
+handle "tensor.lt" with rust_lt
+handle "tensor.le" with rust_le
+handle "tensor.gt" with rust_gt
+handle "tensor.ge" with rust_ge
+handle "tensor.where" with rust_where
+handle "tensor.clamp" with rust_clamp
+handle "tensor.clamp_min" with rust_clamp_min
+handle "tensor.clamp_max" with rust_clamp_max
+handle "tensor.lerp" with rust_lerp
+handle "tensor.xlogy" with rust_xlogy
+handle "tensor.logical_and" with rust_logical_and
+handle "tensor.logical_or" with rust_logical_or
+handle "tensor.logical_xor" with rust_logical_xor
+handle "tensor.sum" with rust_sum
+handle "tensor.prod" with rust_prod
+handle "tensor.mean" with rust_mean
+handle "tensor.var" with rust_var
+handle "tensor.std" with rust_std
+handle "tensor.amax" with rust_amax
+handle "tensor.amin" with rust_amin
+handle "tensor.argmax" with rust_argmax
+handle "tensor.argmin" with rust_argmin
+handle "tensor.logsumexp" with rust_logsumexp
+handle "tensor.all" with rust_all
+handle "tensor.any" with rust_any
+handle "tensor.cumsum" with rust_cumsum
+handle "tensor.cumprod" with rust_cumprod
+handle "tensor.softmax" with rust_softmax
+handle "tensor.log_softmax" with rust_log_softmax
+handle "tensor.layer_norm" with rust_layer_norm
+handle "tensor.rms_norm" with rust_rms_norm
+handle "tensor.glu" with rust_glu
+handle "tensor.sort" with rust_sort
+handle "tensor.argsort" with rust_argsort
+handle "tensor.topk" with rust_topk
+handle "tensor.nonzero" with rust_nonzero
+handle "tensor.argwhere" with rust_argwhere
+handle "tensor.squeeze" with rust_squeeze
+handle "tensor.index_select" with rust_index_select
+handle "tensor.gather" with rust_gather
+handle "tensor.index_add" with rust_index_add
+handle "tensor.index_fill" with rust_index_fill
+handle "tensor.take" with rust_take
+handle "tensor.flatten" with rust_flatten
+handle "tensor.expand" with rust_expand
+handle "tensor.expand_as" with rust_expand_as
+handle "tensor.narrow" with rust_narrow
+handle "tensor.slice" with rust_slice
+handle "tensor.chunk" with rust_chunk
+handle "tensor.split" with rust_split
+handle "tensor.stack" with rust_stack
+handle "tensor.unbind" with rust_unbind
+handle "tensor.repeat" with rust_repeat
+handle "tensor.flip" with rust_flip
+handle "tensor.triu" with rust_triu
+handle "tensor.tril" with rust_tril
+handle "tensor.diag" with rust_diag
+handle "tensor.diagonal" with rust_diagonal
+handle "tensor.trace" with rust_trace
+handle "tensor.t" with rust_t
+handle "tensor.mT" with rust_mT
+handle "tensor.swapaxes" with rust_swapaxes
+handle "tensor.moveaxis" with rust_moveaxis
+handle "tensor.rot90" with rust_rot90
+handle "tensor.contiguous" with rust_contiguous
+handle "tensor.clone" with rust_clone
+handle "tensor.detach" with rust_detach
+handle "tensor.view" with rust_view
+handle "tensor.pixel_shuffle" with rust_pixel_shuffle
+handle "tensor.pixel_unshuffle" with rust_pixel_unshuffle
+handle "tensor.constant_pad_nd" with rust_constant_pad_nd
+handle "tensor.mm" with rust_mm
+handle "tensor.bmm" with rust_bmm
+handle "tensor.addmm" with rust_addmm
+handle "tensor.addbmm" with rust_addbmm
+handle "tensor.baddbmm" with rust_baddbmm
+handle "tensor.mv" with rust_mv
+handle "tensor.dot" with rust_dot
+handle "tensor.vdot" with rust_vdot
+handle "tensor.ger" with rust_ger
+handle "tensor.outer" with rust_outer
+handle "tensor.addr" with rust_addr
+handle "tensor.addmv" with rust_addmv
+handle "tensor.full" with rust_full
+handle "tensor.full_like" with rust_full_like
+handle "tensor.zeros_like" with rust_zeros_like
+handle "tensor.ones_like" with rust_ones_like
+handle "tensor.arange" with rust_arange
+handle "tensor.linspace" with rust_linspace
+handle "tensor.logspace" with rust_logspace
+handle "tensor.eye" with rust_eye
+handle "tensor.size" with rust_size
+handle "tensor.stride" with rust_stride
+handle "tensor.numel" with rust_numel
+handle "tensor.dim" with rust_dim
+handle "tensor.item" with rust_item
+handle "tensor.is_contiguous" with rust_is_contiguous
+handle "tensor.avg_pool2d" with rust_avg_pool2d
+handle "tensor.einsum" with rust_einsum
+handle "tensor.tensordot" with rust_tensordot
+handle "tensor.kron" with rust_kron
+handle "tensor.cross" with rust_cross
+handle "tensor.norm" with rust_norm
+handle "tensor.renorm" with rust_renorm
+handle "tensor.normalize" with rust_normalize
+handle "tensor.median" with rust_median
+handle "tensor.mode" with rust_mode
+handle "tensor.kthvalue" with rust_kthvalue
+handle "tensor.quantile" with rust_quantile
+handle "tensor.searchsorted" with rust_searchsorted
+handle "tensor.bincount" with rust_bincount
+handle "tensor.meshgrid" with rust_meshgrid
+handle "tensor.corrcoef" with rust_corrcoef
+handle "tensor.empty" with rust_empty
+handle "tensor.rand" with rust_rand
+handle "tensor.normal" with rust_normal
+handle "tensor.to" with rust_to
+handle "tensor.unique" with rust_unique
+handle "tensor.nonzero_dim" with rust_nonzero_dim
+--- ATEN-PORT-GEN:END handles
 
 --- The `tensor` namespace record — `from "host-tensor" import tensor` binds
 --- the whole surface at once (each field is the qualified-name string the
@@ -289,5 +1270,202 @@ export tensor := {
   concat: "tensor.concat",
   concat_backward: "tensor.concat_backward",
   batch_norm_backward: "tensor.batch_norm_backward",
-    derive: "tensor.derive"
+    derive: "tensor.derive",
+--- ATEN-PORT-GEN:BEGIN export
+  abs: "tensor.abs",
+  neg: "tensor.neg",
+  exp: "tensor.exp",
+  exp2: "tensor.exp2",
+  expm1: "tensor.expm1",
+  log: "tensor.log",
+  log1p: "tensor.log1p",
+  log2: "tensor.log2",
+  log10: "tensor.log10",
+  sqrt: "tensor.sqrt",
+  rsqrt: "tensor.rsqrt",
+  reciprocal: "tensor.reciprocal",
+  square: "tensor.square",
+  sin: "tensor.sin",
+  cos: "tensor.cos",
+  tan: "tensor.tan",
+  asin: "tensor.asin",
+  acos: "tensor.acos",
+  atan: "tensor.atan",
+  sinh: "tensor.sinh",
+  cosh: "tensor.cosh",
+  tanh: "tensor.tanh",
+  asinh: "tensor.asinh",
+  acosh: "tensor.acosh",
+  atanh: "tensor.atanh",
+  floor: "tensor.floor",
+  ceil: "tensor.ceil",
+  round: "tensor.round",
+  trunc: "tensor.trunc",
+  frac: "tensor.frac",
+  sign: "tensor.sign",
+  sigmoid: "tensor.sigmoid",
+  silu: "tensor.silu",
+  mish: "tensor.mish",
+  gelu: "tensor.gelu",
+  relu: "tensor.relu",
+  selu: "tensor.selu",
+  elu: "tensor.elu",
+  celu: "tensor.celu",
+  leaky_relu: "tensor.leaky_relu",
+  prelu: "tensor.prelu",
+  softplus: "tensor.softplus",
+  softshrink: "tensor.softshrink",
+  hardshrink: "tensor.hardshrink",
+  hardtanh: "tensor.hardtanh",
+  threshold: "tensor.threshold",
+  erf: "tensor.erf",
+  erfc: "tensor.erfc",
+  sinc: "tensor.sinc",
+  deg2rad: "tensor.deg2rad",
+  rad2deg: "tensor.rad2deg",
+  logit: "tensor.logit",
+  nan_to_num: "tensor.nan_to_num",
+  heaviside: "tensor.heaviside",
+  isfinite: "tensor.isfinite",
+  isinf: "tensor.isinf",
+  isnan: "tensor.isnan",
+  isposinf: "tensor.isposinf",
+  isneginf: "tensor.isneginf",
+  signbit: "tensor.signbit",
+  logical_not: "tensor.logical_not",
+  atan2: "tensor.atan2",
+  hypot: "tensor.hypot",
+  logaddexp: "tensor.logaddexp",
+  logaddexp2: "tensor.logaddexp2",
+  maximum: "tensor.maximum",
+  minimum: "tensor.minimum",
+  nextafter: "tensor.nextafter",
+  fmod: "tensor.fmod",
+  floor_divide: "tensor.floor_divide",
+  copysign: "tensor.copysign",
+  remainder: "tensor.remainder",
+  pow: "tensor.pow",
+  float_power: "tensor.float_power",
+  eq: "tensor.eq",
+  ne: "tensor.ne",
+  lt: "tensor.lt",
+  le: "tensor.le",
+  gt: "tensor.gt",
+  ge: "tensor.ge",
+  where: "tensor.where",
+  clamp: "tensor.clamp",
+  clamp_min: "tensor.clamp_min",
+  clamp_max: "tensor.clamp_max",
+  lerp: "tensor.lerp",
+  xlogy: "tensor.xlogy",
+  logical_and: "tensor.logical_and",
+  logical_or: "tensor.logical_or",
+  logical_xor: "tensor.logical_xor",
+  sum: "tensor.sum",
+  prod: "tensor.prod",
+  mean: "tensor.mean",
+  var: "tensor.var",
+  std: "tensor.std",
+  amax: "tensor.amax",
+  amin: "tensor.amin",
+  argmax: "tensor.argmax",
+  argmin: "tensor.argmin",
+  logsumexp: "tensor.logsumexp",
+  all: "tensor.all",
+  any: "tensor.any",
+  cumsum: "tensor.cumsum",
+  cumprod: "tensor.cumprod",
+  softmax: "tensor.softmax",
+  log_softmax: "tensor.log_softmax",
+  layer_norm: "tensor.layer_norm",
+  rms_norm: "tensor.rms_norm",
+  glu: "tensor.glu",
+  sort: "tensor.sort",
+  argsort: "tensor.argsort",
+  topk: "tensor.topk",
+  nonzero: "tensor.nonzero",
+  argwhere: "tensor.argwhere",
+  squeeze: "tensor.squeeze",
+  index_select: "tensor.index_select",
+  gather: "tensor.gather",
+  index_add: "tensor.index_add",
+  index_fill: "tensor.index_fill",
+  take: "tensor.take",
+  flatten: "tensor.flatten",
+  expand: "tensor.expand",
+  expand_as: "tensor.expand_as",
+  narrow: "tensor.narrow",
+  slice: "tensor.slice",
+  chunk: "tensor.chunk",
+  split: "tensor.split",
+  stack: "tensor.stack",
+  unbind: "tensor.unbind",
+  repeat: "tensor.repeat",
+  flip: "tensor.flip",
+  triu: "tensor.triu",
+  tril: "tensor.tril",
+  diag: "tensor.diag",
+  diagonal: "tensor.diagonal",
+  trace: "tensor.trace",
+  t: "tensor.t",
+  mT: "tensor.mT",
+  swapaxes: "tensor.swapaxes",
+  moveaxis: "tensor.moveaxis",
+  rot90: "tensor.rot90",
+  contiguous: "tensor.contiguous",
+  clone: "tensor.clone",
+  detach: "tensor.detach",
+  view: "tensor.view",
+  pixel_shuffle: "tensor.pixel_shuffle",
+  pixel_unshuffle: "tensor.pixel_unshuffle",
+  constant_pad_nd: "tensor.constant_pad_nd",
+  mm: "tensor.mm",
+  bmm: "tensor.bmm",
+  addmm: "tensor.addmm",
+  addbmm: "tensor.addbmm",
+  baddbmm: "tensor.baddbmm",
+  mv: "tensor.mv",
+  dot: "tensor.dot",
+  vdot: "tensor.vdot",
+  ger: "tensor.ger",
+  outer: "tensor.outer",
+  addr: "tensor.addr",
+  addmv: "tensor.addmv",
+  full: "tensor.full",
+  full_like: "tensor.full_like",
+  zeros_like: "tensor.zeros_like",
+  ones_like: "tensor.ones_like",
+  arange: "tensor.arange",
+  linspace: "tensor.linspace",
+  logspace: "tensor.logspace",
+  eye: "tensor.eye",
+  size: "tensor.size",
+  stride: "tensor.stride",
+  numel: "tensor.numel",
+  dim: "tensor.dim",
+  item: "tensor.item",
+  is_contiguous: "tensor.is_contiguous",
+  avg_pool2d: "tensor.avg_pool2d",
+  einsum: "tensor.einsum",
+  tensordot: "tensor.tensordot",
+  kron: "tensor.kron",
+  cross: "tensor.cross",
+  norm: "tensor.norm",
+  renorm: "tensor.renorm",
+  normalize: "tensor.normalize",
+  median: "tensor.median",
+  mode: "tensor.mode",
+  kthvalue: "tensor.kthvalue",
+  quantile: "tensor.quantile",
+  searchsorted: "tensor.searchsorted",
+  bincount: "tensor.bincount",
+  meshgrid: "tensor.meshgrid",
+  corrcoef: "tensor.corrcoef",
+  empty: "tensor.empty",
+  rand: "tensor.rand",
+  normal: "tensor.normal",
+  to: "tensor.to",
+  unique: "tensor.unique",
+  nonzero_dim: "tensor.nonzero_dim"
+--- ATEN-PORT-GEN:END export
 }

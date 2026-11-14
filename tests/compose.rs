@@ -62,7 +62,9 @@ fn registry_lookup_dispatches_qualified_names() {
 #[test]
 fn registry_lookup_unknown_names_miss() {
     let registry = ModuleRegistry::new().with(tensor_module());
-    assert!(registry.lookup("tensor.softmax").is_none());
+    // `tensor.softmax` is now a real ATen port — pick a name that is
+    // genuinely absent from the registry.
+    assert!(registry.lookup("tensor.conv3d").is_none());
     assert!(registry.lookup("other.zeros").is_none());
 }
 

@@ -1,0 +1,230 @@
+# aten-port-gen curated op list — high-value tensor-algebra ports.
+#
+# Format:  tensor.<hnl-name> = aten::<name>[.<overload>]   [# seam: reason]
+#
+# The left side is the host-tensor op name (`tensor.<hnl-name>`); the
+# right side pins the ATen schema the port claims provenance from. When
+# several overloads share a name the pin selects the canonical one —
+# merged drivers (marked "covers …" in src/ops/aten_kernels.rs) may
+# implement sibling overloads too. `# seam:` entries declare the op but
+# emit a stub that fails loudly — they are the honest "needs handwritten
+# behavior" list, not implementations.
+#
+# Regenerate with:  cargo run --bin aten-port-gen
+
+# --- unary math / activations -------------------------------------
+tensor.abs          = aten::abs
+tensor.neg          = aten::neg
+tensor.exp          = aten::exp
+tensor.exp2         = aten::exp2
+tensor.expm1        = aten::expm1
+tensor.log          = aten::log
+tensor.log1p        = aten::log1p
+tensor.log2         = aten::log2
+tensor.log10        = aten::log10
+tensor.sqrt         = aten::sqrt
+tensor.rsqrt        = aten::rsqrt
+tensor.reciprocal   = aten::reciprocal
+tensor.square       = aten::square
+tensor.sin          = aten::sin
+tensor.cos          = aten::cos
+tensor.tan          = aten::tan
+tensor.asin         = aten::asin
+tensor.acos         = aten::acos
+tensor.atan         = aten::atan
+tensor.sinh         = aten::sinh
+tensor.cosh         = aten::cosh
+tensor.tanh         = aten::tanh
+tensor.asinh        = aten::asinh
+tensor.acosh        = aten::acosh
+tensor.atanh        = aten::atanh
+tensor.floor        = aten::floor
+tensor.ceil         = aten::ceil
+tensor.round        = aten::round
+tensor.trunc        = aten::trunc
+tensor.frac         = aten::frac
+tensor.sign         = aten::sign
+tensor.sigmoid      = aten::sigmoid
+tensor.silu         = aten::silu
+tensor.mish         = aten::mish
+tensor.gelu         = aten::gelu
+tensor.relu         = aten::relu
+tensor.selu         = aten::selu
+tensor.elu          = aten::elu
+tensor.celu         = aten::celu
+tensor.leaky_relu   = aten::leaky_relu
+tensor.prelu        = aten::prelu
+tensor.softplus     = aten::softplus
+tensor.softshrink   = aten::softshrink
+tensor.hardshrink   = aten::hardshrink
+tensor.hardtanh     = aten::hardtanh
+tensor.threshold    = aten::threshold
+tensor.erf          = aten::erf
+tensor.erfc         = aten::erfc
+tensor.sinc         = aten::sinc
+tensor.deg2rad      = aten::deg2rad
+tensor.rad2deg      = aten::rad2deg
+tensor.logit        = aten::logit
+tensor.nan_to_num   = aten::nan_to_num
+tensor.heaviside    = aten::heaviside
+tensor.isfinite     = aten::isfinite
+tensor.isinf        = aten::isinf
+tensor.isnan        = aten::isnan
+tensor.isposinf     = aten::isposinf
+tensor.isneginf     = aten::isneginf
+tensor.signbit      = aten::signbit
+tensor.logical_not  = aten::logical_not
+
+# --- binary math ---------------------------------------------------
+tensor.atan2        = aten::atan2
+tensor.hypot        = aten::hypot
+tensor.logaddexp    = aten::logaddexp
+tensor.logaddexp2   = aten::logaddexp2
+tensor.maximum      = aten::maximum
+tensor.minimum      = aten::minimum
+tensor.nextafter    = aten::nextafter
+tensor.fmod         = aten::fmod.Tensor  # covers fmod.Scalar too
+tensor.floor_divide = aten::floor_divide  # covers .Scalar too
+tensor.copysign     = aten::copysign.Tensor # covers .Scalar too
+tensor.remainder    = aten::remainder.Tensor # covers .Scalar*/Scalar_Tensor too
+tensor.pow          = aten::pow.Tensor_Tensor  # covers .Tensor_Scalar too
+tensor.float_power  = aten::float_power.Tensor_Tensor # pow alias for f64
+tensor.eq           = aten::eq.Tensor    # covers eq.Scalar too
+tensor.ne           = aten::ne.Tensor
+tensor.lt           = aten::lt.Tensor
+tensor.le           = aten::le.Tensor
+tensor.gt           = aten::gt.Tensor
+tensor.ge           = aten::ge.Tensor
+tensor.where        = aten::where.self   # covers where.Scalar* too
+tensor.clamp        = aten::clamp        # covers clamp.Tensor too
+tensor.clamp_min    = aten::clamp_min    # covers .Tensor too
+tensor.clamp_max    = aten::clamp_max
+tensor.lerp         = aten::lerp.Tensor  # covers .Scalar too
+tensor.xlogy        = aten::xlogy.Tensor # covers .Scalar_* too
+tensor.logical_and  = aten::logical_and
+tensor.logical_or   = aten::logical_or
+tensor.logical_xor  = aten::logical_xor
+
+# --- reductions ------------------------------------------------------
+tensor.sum          = aten::sum.dim_IntList
+tensor.prod         = aten::prod.dim_int
+tensor.mean         = aten::mean.dim
+tensor.var          = aten::var.dim      # covers var (unbiased) too
+tensor.std          = aten::std.dim
+tensor.amax         = aten::amax
+tensor.amin         = aten::amin
+tensor.argmax       = aten::argmax
+tensor.argmin       = aten::argmin
+tensor.logsumexp    = aten::logsumexp
+tensor.all          = aten::all.dims     # covers all.dim too
+tensor.any          = aten::any.dims
+tensor.cumsum       = aten::cumsum
+tensor.cumprod      = aten::cumprod
+tensor.softmax      = aten::softmax.int
+tensor.log_softmax  = aten::log_softmax.int
+tensor.layer_norm   = aten::layer_norm
+tensor.rms_norm     = aten::rms_norm
+tensor.glu          = aten::glu
+
+# --- sort / select ---------------------------------------------------
+tensor.sort         = aten::sort
+tensor.argsort      = aten::argsort
+tensor.topk         = aten::topk
+tensor.nonzero      = aten::nonzero
+tensor.argwhere     = aten::argwhere
+tensor.squeeze      = aten::squeeze.dims # covers .dim too
+tensor.index_select = aten::index_select
+tensor.gather       = aten::gather
+tensor.index_add    = aten::index_add
+tensor.index_fill   = aten::index_fill.int_Scalar # .int_Tensor uncovered
+tensor.take         = aten::take
+
+# NOTE: tensor.unsqueeze and tensor.reshape are NOT listed — they are
+# already ported by hand (src/ops/shape_ops.rs); the drift guard requires
+# index.hnl/TENSOR_OPS/registry to stay in lockstep.
+
+# --- shape ------------------------------------------------------------
+tensor.flatten      = aten::flatten.using_ints
+tensor.expand       = aten::expand
+tensor.expand_as    = aten::expand_as
+tensor.narrow       = aten::narrow        # .Tensor start variant uncovered
+tensor.slice        = aten::slice.Tensor
+tensor.chunk        = aten::chunk
+tensor.split        = aten::split         # covers .sizes/.Tensor too
+tensor.stack        = aten::stack
+tensor.unbind       = aten::unbind.int
+tensor.repeat       = aten::repeat
+tensor.flip         = aten::flip
+tensor.triu         = aten::triu
+tensor.tril         = aten::tril
+tensor.diag         = aten::diag
+tensor.diagonal     = aten::diagonal
+tensor.trace        = aten::trace
+tensor.t            = aten::t
+tensor.mT           = aten::mT
+tensor.swapaxes     = aten::swapaxes
+tensor.moveaxis     = aten::moveaxis.intlist # covers .int too
+tensor.rot90        = aten::rot90
+tensor.contiguous   = aten::contiguous
+tensor.clone        = aten::clone
+tensor.detach       = aten::detach
+tensor.view         = aten::view         # alias of reshape (reshape itself is handwritten)
+tensor.pixel_shuffle   = aten::pixel_shuffle
+tensor.pixel_unshuffle = aten::pixel_unshuffle
+tensor.constant_pad_nd = aten::constant_pad_nd
+
+# --- linalg -------------------------------------------------------------
+tensor.mm           = aten::mm
+tensor.bmm          = aten::bmm
+tensor.addmm        = aten::addmm        # beta/alpha positional (kwonly upstream)
+tensor.addbmm       = aten::addbmm
+tensor.baddbmm      = aten::baddbmm
+tensor.mv           = aten::mv
+tensor.dot          = aten::dot          # covers vdot too
+tensor.vdot         = aten::vdot
+tensor.ger          = aten::ger
+tensor.outer        = aten::outer        # alias of ger
+tensor.addr         = aten::addr
+tensor.addmv        = aten::addmv
+
+# --- constructors / metadata ---------------------------------------------
+tensor.full         = aten::full
+tensor.full_like    = aten::full_like
+tensor.zeros_like   = aten::zeros_like
+tensor.ones_like    = aten::ones_like
+tensor.arange       = aten::arange.start_step # covers .start/end too
+tensor.linspace     = aten::linspace     # Scalar start/end only
+tensor.logspace     = aten::logspace
+tensor.eye          = aten::eye.m        # covers eye(n) too
+tensor.size         = aten::size         # covers size.int too
+tensor.stride       = aten::stride
+tensor.numel        = aten::numel
+tensor.dim          = aten::dim
+tensor.item         = aten::item
+tensor.is_contiguous= aten::is_contiguous
+
+# --- pooling ---------------------------------------------------------------
+tensor.avg_pool2d   = aten::avg_pool2d
+
+# --- explicit seams: declared, registered, fail loudly ----------------------
+tensor.einsum       = aten::einsum        # seam: equation parser + opt_einsum
+tensor.tensordot    = aten::tensordot     # seam: dim-list contraction
+tensor.kron         = aten::kron          # seam: kronecker product
+tensor.cross        = aten::cross         # seam: dim-optional vector cross
+tensor.norm         = aten::norm          # seam: p/ord/dim matrix norms
+tensor.renorm       = aten::renorm        # seam: p-norm rescale
+tensor.normalize    = aten::linalg_vector_norm # seam: F.normalize is composite (no aten::normalize)
+tensor.median       = aten::median        # seam: (values,indices) tuple
+tensor.mode         = aten::mode          # seam: mode tuple
+tensor.kthvalue     = aten::kthvalue      # seam: (values,indices) tuple
+tensor.quantile     = aten::quantile      # seam: interpolation modes
+tensor.searchsorted = aten::searchsorted  # seam: sorted-sequence search
+tensor.bincount     = aten::bincount      # seam: int-bucket histogram
+tensor.meshgrid     = aten::meshgrid      # seam: Tensor[] -> Tensor[]
+tensor.corrcoef     = aten::corrcoef       # seam: covariance matrix
+tensor.empty        = aten::empty         # seam: uninitialized fill
+tensor.rand         = aten::rand          # seam: RNG (no Generator on wire)
+tensor.normal       = aten::normal        # seam: RNG
+tensor.to           = aten::to.dtype      # seam: dtype cast — f64 only
+tensor.unique       = aten::_unique       # seam: (values,indices,inverse) tuple; private schema
+tensor.nonzero_dim  = aten::nonzero_static # seam: dim-arg variant, tuple ret
